@@ -1,5 +1,5 @@
 // ========================================
-// 像素摸鱼小游戏 - 完整版本
+// 像素摸鱼小游戏 - 完整版本（修复移动逻辑）
 // 包含：流浪猫、长椅、喷泉、老板键、粒子特效、NPC聊天
 // ========================================
 
@@ -25,6 +25,8 @@ const CONFIG = {
 const gameState = {
     playerX: 10,
     playerY: 10,
+    isMoving: false,  // ✅ 新增：控制移动的标志位
+    lastMoveTime: 0,  // ✅ 新增：记录上一次移动的时间
     inventory: {
         coin: 0,
         driedFish: 0
@@ -83,12 +85,27 @@ ctx.msImageSmoothingEnabled = false;
 ctx.mozImageSmoothingEnabled = false;
 
 // ========================================
-// 输入管理
+// 输入管理（修复版）
 // ========================================
 const keys = {};
+let pendingMove = null; // ✅ 记录待处理的移动方向
 
 window.addEventListener('keydown', (e) => {
     keys[e.key] = true;
+    
+    // ✅ 方向键移动处理（只在 keydown 时触发一次）
+    if ((e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') && !e.repeat && !gameState.isMoving) {
+        pendingMove = { dx: 0, dy: -1 };
+    }
+    if ((e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') && !e.repeat && !gameState.isMoving) {
+        pendingMove = { dx: 0, dy: 1 };
+    }
+    if ((e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') && !e.repeat && !gameState.isMoving) {
+        pendingMove = { dx: -1, dy: 0 };
+    }
+    if ((e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') && !e.repeat && !gameState.isMoving) {
+        pendingMove = { dx: 1, dy: 0 };
+    }
     
     // E 键交互
     if ((e.key === 'e' || e.key === 'E') && !gameState.isBossKeyActive) {
@@ -103,6 +120,8 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
     keys[e.key] = false;
+    // ✅ 重置移动状态当键释放时
+    gameState.isMoving = false;
 });
 
 // ========================================
@@ -595,34 +614,34 @@ function canTalkToNPC() {
 }
 
 // ========================================
-// 玩家移动更新
+// 玩家移动更新（修复版）
 // ========================================
 function updatePlayer() {
     if (gameState.isSitting || gameState.isChattingWithNPC || gameState.isPaused) return;
     
-    let newX = gameState.playerX;
-    let newY = gameState.playerY;
-    let moved = false;
-    
-    if (keys['ArrowUp'] || keys['w'] || keys['W']) { newY--; moved = true; }
-    if (keys['ArrowDown'] || keys['s'] || keys['S']) { newY++; moved = true; }
-    if (keys['ArrowLeft'] || keys['a'] || keys['A']) { newX--; moved = true; }
-    if (keys['ArrowRight'] || keys['d'] || keys['D']) { newX++; moved = true; }
-    
-    if (moved && canWalkOn(newX, newY)) {
-        gameState.playerX = newX;
-        gameState.playerY = newY;
+    // ✅ 只处理待处理的移动
+    if (pendingMove && !gameState.isMoving) {
+        const newX = gameState.playerX + pendingMove.dx;
+        const newY = gameState.playerY + pendingMove.dy;
         
-        // 检查长椅
-        if (gameState.playerX === specialLocations.bench.x && 
-            gameState.playerY === specialLocations.bench.y) {
-            gameState.isSitting = true;
-            gameState.benchSitTime = Date.now();
-            gameState.bubbleTime = Date.now();
+        if (canWalkOn(newX, newY)) {
+            gameState.playerX = newX;
+            gameState.playerY = newY;
+            gameState.isMoving = true;  // ✅ 标记为正在移动
+            
+            // 检查长椅
+            if (gameState.playerX === specialLocations.bench.x && 
+                gameState.playerY === specialLocations.bench.y) {
+                gameState.isSitting = true;
+                gameState.benchSitTime = Date.now();
+                gameState.bubbleTime = Date.now();
+            }
+            
+            // 检查水坑
+            checkPuddleCollision();
         }
         
-        // 检查水坑
-        checkPuddleCollision();
+        pendingMove = null;  // ✅ 清除待处理的移动
     }
     
     // 猫咪跟随
@@ -891,7 +910,7 @@ function updateBenchBubbles() {
     }
 }
 
-// 站起来
+// 站起来（修复版）
 window.addEventListener('keydown', (e) => {
     if (gameState.isSitting && 
         (e.key === 'ArrowUp' || e.key === 'ArrowDown' || 
@@ -901,6 +920,7 @@ window.addEventListener('keydown', (e) => {
          e.key === 's' || e.key === 'S' || 
          e.key === 'd' || e.key === 'D')) {
         gameState.isSitting = false;
+        gameState.isMoving = false;  // ✅ 重置移动状态
     }
     
     // 关闭 NPC 对话
@@ -910,6 +930,7 @@ window.addEventListener('keydown', (e) => {
          e.key === 'e' || e.key === 'E')) {
         gameState.isChattingWithNPC = false;
         gameState.dialogActive = false;
+        gameState.isMoving = false;  // ✅ 重置移动状态
     }
 });
 
