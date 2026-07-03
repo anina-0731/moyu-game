@@ -1,5 +1,5 @@
 // ==========================================
-// 💡【终极降维打击】自动强擦旧存档，防止越界隐形
+// 💡 自动清洗旧数据，防止越界隐形
 // ==========================================
 localStorage.clear(); 
 
@@ -20,10 +20,10 @@ let isPaused = false;
 let isBossMode = false;
 let activeDialog = null;    
 
-// 玩家数据结构：改到 (10, 10) 的绝对空旷安全区
+// 玩家数据结构：开局放在一个没有阻挡的开阔区 (10, 10)
 const player = {
-    gridX: 10,             // 改成 10
-    gridY: 10,             // 改成 10
+    gridX: 10,             
+    gridY: 10,             
     pixelX: 10 * TILE_SIZE,
     pixelY: 10 * TILE_SIZE,
     targetPixelX: 10 * TILE_SIZE,
@@ -90,7 +90,7 @@ function generateRandomItems() {
     for (let i = 0; i < 30; i++) {
         let rx = Math.floor(Math.random() * MAP_GRID);
         let ry = Math.floor(Math.random() * MAP_GRID);
-        if (!isSolid(rx, ry) && (rx !== 15 || ry !== 15)) {
+        if (!isSolid(rx, ry) && (rx !== 10 || ry !== 10)) {
             const proto = pool[Math.floor(Math.random() * pool.length)];
             items.push({
                 id: `item_${Date.now()}_${i}`,
@@ -105,14 +105,12 @@ function generateRandomItems() {
 
 function loadOrCreateGame() {
     initNewUniverse();
-    
-    // 💡 强行重置所有锁定状态，确保开局能动！
     isPaused = false;
     isBossMode = false;
     activeDialog = null;
     player.isSitting = false;
 
-    player.gridX = 10; // 顺便移到安全的 10, 10
+    player.gridX = 10;
     player.gridY = 10;
     player.pixelX = player.gridX * TILE_SIZE;
     player.pixelY = player.gridY * TILE_SIZE;
@@ -238,7 +236,7 @@ const puddles = [
 ];
 
 // ==========================================
-// 4. 精美 DOM 对话框与悬浮气泡
+// 4. 对话框与悬浮气泡
 // ==========================================
 function createDialogDOM(title, content) {
     removeDialogDOM(); 
@@ -325,7 +323,7 @@ function checkInteractions() {
         saveGame();
         const callStories = [
             "喂？是外卖吗？不，这里是像素摸鱼局......",
-            "接通了！里面传出了神秘的电台音乐，竟然有一丝治愈的白噪音。",
+            "接通了！里面传出了神秘的电台音乐，竟然有一丝治优的白噪音。",
             "你拨通了一个未知号码：'听说了吗？往路边的喷泉里投硬币，真的能测运势！'",
             "电话里传来一个声音：'别摸鱼了，老板正在提刀赶来的路上！'"
         ];
@@ -451,7 +449,7 @@ function checkInteractions() {
     }
 
     if (frontX === 8 && frontY === 15) {
-        createDialogDOM("👧 路边的小姐打个招呼", "偷偷在这里摸鱼，是只属于我们两个人的秘密哦！🤫");
+        createDialogDOM("👧 路边的小姐姐", "偷偷在这里摸鱼，是只属于我们两个人的秘密哦！🤫");
     }
 }
 
@@ -621,12 +619,13 @@ function draw() {
     drawPixelSprite(objs.guitarist.gridX, objs.guitarist.gridY, camX, camY, '#fdcb6e', '🎸'); 
     drawPixelSprite(objs.mailbox.gridX, objs.mailbox.gridY, camX, camY, '#10ac84', objs.mailbox.hasLetter ? '📬' : '✉️'); 
 
+    // 📺 电视机渲染机制修正：使用正确的变量对象 objs.tv
     const tvX = objs.tv.gridX * TILE_SIZE - camX;
     const tvY = objs.tv.gridY * TILE_SIZE - camY;
     ctx.fillStyle = '#2c3e50';
     ctx.fillRect(tvX, tvY, TILE_SIZE, TILE_SIZE);
-    if (tv.isOn) {
-        ctx.fillStyle = (Math.floor(tv.animFrame / 15) % 2 === 0) ? '#1abc9c' : '#f1c40f';
+    if (objs.tv.isOn) {
+        ctx.fillStyle = (Math.floor(objs.tv.animFrame / 15) % 2 === 0) ? '#1abc9c' : '#f1c40f';
         ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
     } else {
         ctx.fillStyle = '#111';
@@ -650,28 +649,27 @@ function draw() {
     ctx.font = '16px sans-serif';
     ctx.fillText('🐱', catX + 8, catY + 22);
 
-    // 💡【新主角形象绘制区域】精致的双马尾小女孩！
+    // 👧 主角形象：双马尾小女孩
     const px = player.pixelX - camX;
     const py = player.pixelY - camY;
 
-    // 1. 绘制小女孩的长发/双马尾（深棕色）
+    // 1. 马尾与头发（深棕色）
     ctx.fillStyle = '#5c3d2e'; 
-    ctx.fillRect(px + 2, py + 4, 6, 12);  // 左马尾
-    ctx.fillRect(px + 24, py + 4, 6, 12); // 右马尾
-    ctx.fillRect(px + 6, py + 0, 20, 5);  // 头顶刘海
+    ctx.fillRect(px + 2, py + 4, 6, 12);  
+    ctx.fillRect(px + 24, py + 4, 6, 12); 
+    ctx.fillRect(px + 6, py + 0, 20, 5);  
 
-    // 2. 脸部裙装
-    ctx.fillStyle = '#ffeaa7'; // 肤色
+    // 2. 脸与小礼裙
+    ctx.fillStyle = '#ffeaa7'; 
     ctx.fillRect(px + 6, py + 4, 20, 10);
-    ctx.fillStyle = '#ff7675'; // 漂亮的珊瑚红小裙子
+    ctx.fillStyle = '#ff7675'; 
     ctx.fillRect(px + 4, py + 14, 24, 16);
 
-    // 3. 灵动的眼睛（根据走动方向调整视线）
+    // 3. 根据移动状态转向的眼睛
     ctx.fillStyle = '#2d3436'; 
     if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 7, 2, 3);
     if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 19, py + 7, 2, 3);
     if (player.direction === 'up') {
-        // 后脑勺视角：全部画上棕色头发覆盖
         ctx.fillStyle = '#5c3d2e';
         ctx.fillRect(px + 6, py + 4, 20, 10);
     }
@@ -744,9 +742,9 @@ loop();
 
 setInterval(checkContinuousInput, 16);
 
-// 💡 强制网页一打开，就把焦点给到游戏画布
-canvas.focus();
+// 给画板焦点，方便直接操控
+try { canvas.focus(); } catch(e){}
 
 setTimeout(() => {
-    createDialogDOM("👧 小女孩皮肤已装配！", "本地冲突旧存档已被永久洗去。这一次你绝对能闪现回广场正中心，看清自己的可爱双马尾了！");
+    createDialogDOM("✨ 代码逻辑彻底修复", "修正了变量未定义的底层卡死 Bug！现在地图正常渲染，快看看你的双马尾小女孩！");
 }, 200);
