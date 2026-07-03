@@ -1,5 +1,5 @@
 // ==========================================
-// 1. 游戏基础配置与初始化（地图已改为 50 * 50）
+// 1. 游戏基础配置与初始化（地图 50 * 50）
 // ==========================================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -7,7 +7,7 @@ const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
 const TILE_SIZE = 32;       
-const MAP_GRID = 50;        // 地图尺寸正式修改为 50 * 50
+const MAP_GRID = 50;        
 const VIEW_WIDTH = 800;     
 const VIEW_HEIGHT = 600;    
 
@@ -17,13 +17,13 @@ let activeDialog = null;
 
 // 玩家数据结构
 const player = {
-    gridX: 10,             
-    gridY: 10,             
-    pixelX: 10 * TILE_SIZE,
-    pixelY: 10 * TILE_SIZE,
-    targetPixelX: 10 * TILE_SIZE,
-    targetPixelY: 10 * TILE_SIZE,
-    moveSpeed: 4,          // 移动速度
+    gridX: 15,             // 默认出生点改到 15
+    gridY: 15,             
+    pixelX: 15 * TILE_SIZE,
+    pixelY: 15 * TILE_SIZE,
+    targetPixelX: 15 * TILE_SIZE,
+    targetPixelY: 15 * TILE_SIZE,
+    moveSpeed: 4,          
     isMoving: false,       
     direction: 'down',     
     inventory: [],          
@@ -32,8 +32,6 @@ const player = {
 };
 
 let particles = [];
-
-// 【核心修复】：按键状态字典
 const keysPressed = {};
 
 // ==========================================
@@ -75,7 +73,6 @@ function isSolid(x, y) {
     return false;
 }
 
-// 缩减地图后，道具数量从60缩减到合理密度的30个，更容易捡到！
 function generateRandomItems() {
     const items = [];
     const pool = [
@@ -88,7 +85,7 @@ function generateRandomItems() {
     for (let i = 0; i < 30; i++) {
         let rx = Math.floor(Math.random() * MAP_GRID);
         let ry = Math.floor(Math.random() * MAP_GRID);
-        if (!isSolid(rx, ry) && (rx !== 10 || ry !== 10)) {
+        if (!isSolid(rx, ry) && (rx !== 15 || ry !== 15)) {
             const proto = pool[Math.floor(Math.random() * pool.length)];
             items.push({
                 id: `item_${Date.now()}_${i}`,
@@ -101,30 +98,37 @@ function generateRandomItems() {
     return items;
 }
 
+// 【强制救援核心】：读取存档并进行暴力越界重置
 function loadOrCreateGame() {
     const savedData = localStorage.getItem('pixel_moyu_save');
     if (savedData) {
         try {
             const parsed = JSON.parse(savedData);
             gameState = parsed.gameState;
-            player.gridX = parsed.player.gridX;
-            player.gridY = parsed.player.gridY;
-            // 防止缩减地图后旧存档坐标越界
-            if(player.gridX >= MAP_GRID) player.gridX = 10;
-            if(player.gridY >= MAP_GRID) player.gridY = 10;
+            
+            // 💡【降维打击】强制检查：如果存档里的人在 50 格外，或者由于未知 Bug 找不到了，直接拉回 (15, 15)
+            if (!parsed.player || parsed.player.gridX >= MAP_GRID || parsed.player.gridY >= MAP_GRID || parsed.player.gridX < 0 || parsed.player.gridY < 0) {
+                player.gridX = 15;
+                player.gridY = 15;
+            } else {
+                player.gridX = parsed.player.gridX;
+                player.gridY = parsed.player.gridY;
+            }
 
-            player.pixelX = player.gridX * TILE_SIZE;
-            player.pixelY = player.gridY * TILE_SIZE;
-            player.targetPixelX = player.pixelX;
-            player.targetPixelY = player.pixelY;
-            player.inventory = parsed.player.inventory;
-            player.direction = parsed.player.direction;
+            player.inventory = parsed.player.inventory || [];
+            player.direction = parsed.player.direction || 'down';
         } catch(e) {
             initNewUniverse();
         }
     } else {
         initNewUniverse();
     }
+
+    // 💡【双重保险】不管有没有存档，开机时直接强制重位像素坐标，确保镜头死死锁在人身上
+    player.pixelX = player.gridX * TILE_SIZE;
+    player.pixelY = player.gridY * TILE_SIZE;
+    player.targetPixelX = player.pixelX;
+    player.targetPixelY = player.pixelY;
 
     if (Date.now() - gameState.lastRefreshTime > MAP_REFRESH_INTERVAL) {
         refreshWorldElements();
@@ -167,13 +171,12 @@ function saveGame() {
 }
 
 // ==========================================
-// 3. 【彻底重写】高频动态移动监听引擎
+// 3. 高频动态移动监听
 // ==========================================
 window.addEventListener('keydown', (e) => {
     if (isBossMode) return;
     const key = e.key.toLowerCase();
     
-    // 允许记录所有的方向键
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
         keysPressed[key] = true;
     }
@@ -213,12 +216,10 @@ window.addEventListener('keyup', (e) => {
     }
 });
 
-// 当页面失去焦点时，清空按键字典，防止角色无限自动乱跑
 window.addEventListener('blur', () => {
     for (let key in keysPressed) keysPressed[key] = false;
 });
 
-// 核心状态机：高频检查长按行为
 function checkContinuousInput() {
     if (player.isMoving || isPaused || player.isSitting || activeDialog || isBossMode) return;
 
@@ -227,7 +228,6 @@ function checkContinuousInput() {
     let newDir = player.direction;
     let wantsToMove = false;
 
-    // 同时兼容 WASD 和 方向键
     if (keysPressed['w'] || keysPressed['arrowup']) { nextGridY--; newDir = 'up'; wantsToMove = true; }
     else if (keysPressed['s'] || keysPressed['arrowdown']) { nextGridY++; newDir = 'down'; wantsToMove = true; }
     else if (keysPressed['a'] || keysPressed['arrowleft']) { nextGridX--; newDir = 'left'; wantsToMove = true; }
@@ -237,7 +237,6 @@ function checkContinuousInput() {
 
     player.direction = newDir;
 
-    // 边界与碰撞检测
     if (nextGridX >= 0 && nextGridX < MAP_GRID && nextGridY >= 0 && nextGridY < MAP_GRID) {
         if (!isSolid(nextGridX, nextGridY)) {
             player.gridX = nextGridX;
@@ -540,7 +539,6 @@ function updateInventoryUI() {
 function update() {
     if (isPaused || isBossMode) return;
 
-    // 高频扫描键盘字典，实现极其灵敏的长按连跑
     checkContinuousInput();
 
     if (player.isMoving) {
@@ -594,7 +592,6 @@ function draw() {
     let camX = player.pixelX - VIEW_WIDTH / 2 + TILE_SIZE / 2;
     let camY = player.pixelY - VIEW_HEIGHT / 2 + TILE_SIZE / 2;
 
-    // 相机边界计算同步更新为 50 格
     camX = Math.max(0, Math.min(camX, MAP_GRID * TILE_SIZE - VIEW_WIDTH));
     camY = Math.max(0, Math.min(camY, MAP_GRID * TILE_SIZE - VIEW_HEIGHT));
 
@@ -740,13 +737,12 @@ document.getElementById('hideBtn').addEventListener('click', () => {
 // ==========================================
 // 8. 游戏开机启动引导
 // ==========================================
-loadOrCreateGame(); 
+loadOrCreateGame(); // 💡 内部已加入强制安全点闪现
 updateInventoryUI();
 loop();
 
-// 核心优化：改用极速时钟轮询机制，每 16 毫秒高频扫描按键，确保长按连跑绝无死角
 setInterval(checkContinuousInput, 16);
 
 setTimeout(() => {
-    createDialogDOM("🎮 摸鱼城精简大升级", "1. 地图已缩减至温馨的 50 * 50，再也不会空空荡荡啦！<br>2. 彻底重写了输入引擎，长按 WASD 或方向键现在可以超顺滑地连续奔跑！");
+    createDialogDOM("✨ 紧急搜救成功", "已在代码层强制把你捞回了地图中心点 (15, 15)！快试试长按键盘狂奔吧！");
 }, 200);
