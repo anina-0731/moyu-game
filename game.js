@@ -1,1036 +1,607 @@
-// ========================================
-// 像素摸鱼小游戏 - 完整版本（修复移动逻辑）
-// 包含：流浪猫、长椅、喷泉、老板键、粒子特效、NPC聊天
-// ========================================
-
-// 游戏配置
-const CONFIG = {
-    CANVAS_WIDTH: 800,
-    CANVAS_HEIGHT: 600,
-    TILE_SIZE: 32,
-    MAP_WIDTH: 100,
-    MAP_HEIGHT: 100,
-    COLORS: {
-        GRASS: '#9bbc0f',
-        ROAD: '#8b956d',
-        BUILDING: '#4a3728',
-        WATER: '#4f90d3',
-        PUDDLE: '#2d5a8c'
-    }
-};
-
-// ========================================
-// 游戏状态管理
-// ========================================
-const gameState = {
-    playerX: 10,
-    playerY: 10,
-    isMoving: false,  // ✅ 新增：控制移动的标志位
-    lastMoveTime: 0,  // ✅ 新增：记录上一次移动的时间
-    inventory: {
-        coin: 0,
-        driedFish: 0
-    },
-    isSitting: false,
-    isChattingWithNPC: false,
-    isPaused: false,
-    isBossKeyActive: false,
-    cat: {
-        x: 20,
-        y: 20,
-        following: false,
-        lastPlayerX: 10,
-        lastPlayerY: 10
-    },
-    items: [],
-    particles: [],
-    puddles: [],
-    npc: null
-};
-
-// ========================================
-// 特殊地点定义
-// ========================================
-const specialLocations = {
-    cat: { x: 20, y: 20, type: 'cat' },
-    bench: { x: 30, y: 15, type: 'bench' },
-    fountain: { x: 50, y: 50, type: 'fountain' }
-};
-
-// ========================================
-// NPC 对话库
-// ========================================
-const NPCDialogues = [
-    "嗨！今天的天气真的很适合在城市里散步呢。",
-    "你要去售货机那里看看吗？我听说那里有新的草莓汽水哦。",
-    "这只小猫咪一直在附近转悠，它是不是肚子饿了呀？",
-    "工作真的好累呢...还好有这么一个可以放松的地方。",
-    "你看天空中的云，是不是像棉花糖啊？",
-    "最近发现了一家很不错的奶茶店，下次一起去试试吧！",
-    "听说这个公园的晚上夜景超级漂亮呢。",
-    "有没有推荐什么有趣的游戏呀？我最近有点无聊。",
-    "我的小猫今天在家睡了一整天，太懒了。😸",
-    "对了，这附近有一家很便宜的便利店，什么都有呢。"
-];
-
-// ========================================
-// Canvas 初始化
-// ========================================
+// ==========================================
+// 1. 游戏基础配置与初始化
+// ==========================================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
+// 禁用平滑缩放，完美呈现纯正的像素风 (Pixel Art)
 ctx.imageSmoothingEnabled = false;
-ctx.webkitImageSmoothingEnabled = false;
-ctx.msImageSmoothingEnabled = false;
-ctx.mozImageSmoothingEnabled = false;
 
-// ========================================
-// 输入管理（修复版）
-// ========================================
-const keys = {};
-let pendingMove = null; // ✅ 记录待处理的移动方向
+const TILE_SIZE = 32;       // 每个格子 32x32 像素
+const MAP_GRID = 100;       // 100 * 100 网格
+const VIEW_WIDTH = 800;     // 视口宽
+const VIEW_HEIGHT = 600;    // 视口高
+
+// 游戏状态控制
+let isPaused = false;
+let isBossMode = false;
+let activeDialog = null;    // 当前弹出的对话框内容
+
+// 玩家数据结构
+const player = {
+    gridX: 10,             // 初始网格坐标 X
+    gridY: 10,             // 初始网格坐标 Y
+    pixelX: 10 * TILE_SIZE,
+    pixelY: 10 * TILE_SIZE,
+    targetPixelX: 10 * TILE_SIZE,
+    targetPixelY: 10 * TILE_SIZE,
+    moveSpeed: 4,          // 像素平滑移动速度
+    isMoving: false,       // 关键：锁定单次网格移动的标志位
+    direction: 'down',     // 朝向：up, down, left, right
+    inventory: [],          // 物品栏容器
+    isSitting: false,       // 是否在长椅上挂机
+    sitTimer: 0
+};
+
+// 各种特效粒子容器
+let particles = [];
+
+// ==========================================
+// 2. 核心 Bug 修复：严格的回合制单格移动系统
+// ==========================================
+// 记录当前按下的键，但在 keydown 时我们只触发一次准确的坐标加减
+const keysPressed = {};
 
 window.addEventListener('keydown', (e) => {
-    keys[e.key] = true;
+    if (isBossMode) return;
     
-    // ✅ 方向键移动处理（只在 keydown 时触发一次）
-    if ((e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') && !e.repeat && !gameState.isMoving) {
-        pendingMove = { dx: 0, dy: -1 };
-    }
-    if ((e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') && !e.repeat && !gameState.isMoving) {
-        pendingMove = { dx: 0, dy: 1 };
-    }
-    if ((e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') && !e.repeat && !gameState.isMoving) {
-        pendingMove = { dx: -1, dy: 0 };
-    }
-    if ((e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') && !e.repeat && !gameState.isMoving) {
-        pendingMove = { dx: 1, dy: 0 };
-    }
-    
-    // E 键交互
-    if ((e.key === 'e' || e.key === 'E') && !gameState.isBossKeyActive) {
-        handleInteraction();
-    }
-    
-    // Esc 老板键
+    // 老板键检测
     if (e.key === 'Escape') {
-        toggleBossKey();
-    }
-});
-
-window.addEventListener('keyup', (e) => {
-    keys[e.key] = false;
-    // ✅ 重置移动状态当键释放时
-    gameState.isMoving = false;
-});
-
-// ========================================
-// 老板键系统
-// ========================================
-function toggleBossKey() {
-    const bossKeyScreen = document.getElementById('bossKeyScreen');
-    const pauseDialog = document.getElementById('pauseDialog');
-    
-    if (!gameState.isBossKeyActive) {
-        // 进入老板键
-        gameState.isBossKeyActive = true;
-        gameState.isPaused = true;
-        bossKeyScreen.classList.add('active');
-        updateBossKeyTime();
-    } else {
-        // 退出老板键
-        gameState.isBossKeyActive = false;
-        bossKeyScreen.classList.remove('active');
-        pauseDialog.classList.add('active');
-    }
-}
-
-function updateBossKeyTime() {
-    const now = new Date();
-    const timeStr = now.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-    });
-    document.getElementById('bossKeyTime').textContent = timeStr;
-}
-
-// 暂停对话框事件
-document.getElementById('resumeBtn')?.addEventListener('click', () => {
-    gameState.isPaused = false;
-    document.getElementById('pauseDialog').classList.remove('active');
-});
-
-document.getElementById('hideBtn')?.addEventListener('click', () => {
-    const bossKeyScreen = document.getElementById('bossKeyScreen');
-    const pauseDialog = document.getElementById('pauseDialog');
-    gameState.isBossKeyActive = true;
-    pauseDialog.classList.remove('active');
-    bossKeyScreen.classList.add('active');
-    updateBossKeyTime();
-});
-
-// ========================================
-// 地图生成
-// ========================================
-function generateMap() {
-    const map = [];
-    for (let y = 0; y < CONFIG.MAP_HEIGHT; y++) {
-        const row = [];
-        for (let x = 0; x < CONFIG.MAP_WIDTH; x++) {
-            let tile = 'grass';
-            
-            // 道路
-            if ((x === 25 && y >= 10 && y <= 40) || (y === 25 && x >= 10 && x <= 60)) {
-                tile = 'road';
-            }
-            
-            // 建筑
-            if ((x >= 40 && x <= 45 && y >= 30 && y <= 35) ||
-                (x >= 10 && x <= 15 && y >= 40 && y <= 45)) {
-                tile = 'building';
-            }
-            
-            // 水体
-            if ((x >= 60 && x <= 65 && y >= 50 && y <= 55)) {
-                tile = 'water';
-            }
-            
-            row.push(tile);
-        }
-        map.push(row);
-    }
-    return map;
-}
-
-const gameMap = generateMap();
-
-// 生成水坑
-function generatePuddles() {
-    const puddles = [];
-    for (let i = 0; i < 6; i++) {
-        let x, y;
-        do {
-            x = Math.floor(Math.random() * CONFIG.MAP_WIDTH);
-            y = Math.floor(Math.random() * CONFIG.MAP_HEIGHT);
-        } while (gameMap[y][x] !== 'road' || 
-                 (x === 25 && y === 25) ||
-                 puddles.some(p => Math.abs(p.x - x) < 3 && Math.abs(p.y - y) < 3));
-        
-        puddles.push({ x, y });
-    }
-    return puddles;
-}
-
-gameState.puddles = generatePuddles();
-
-// 生成 NPC
-function generateNPC() {
-    return {
-        x: 35,
-        y: 20,
-        name: '小姐姐',
-        currentDialogue: '',
-        isActive: false
-    };
-}
-
-gameState.npc = generateNPC();
-
-// ========================================
-// 地图绘制
-// ========================================
-function drawMap(offsetX, offsetY) {
-    const startX = Math.floor(offsetX / CONFIG.TILE_SIZE);
-    const startY = Math.floor(offsetY / CONFIG.TILE_SIZE);
-    const endX = startX + Math.ceil(CONFIG.CANVAS_WIDTH / CONFIG.TILE_SIZE) + 1;
-    const endY = startY + Math.ceil(CONFIG.CANVAS_HEIGHT / CONFIG.TILE_SIZE) + 1;
-    
-    for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-            if (x < 0 || x >= CONFIG.MAP_WIDTH || y < 0 || y >= CONFIG.MAP_HEIGHT) continue;
-            
-            const tile = gameMap[y][x];
-            const screenX = x * CONFIG.TILE_SIZE - offsetX;
-            const screenY = y * CONFIG.TILE_SIZE - offsetY;
-            
-            switch(tile) {
-                case 'grass':
-                    ctx.fillStyle = CONFIG.COLORS.GRASS;
-                    ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
-                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.1)';
-                    ctx.strokeRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
-                    break;
-                case 'road':
-                    ctx.fillStyle = CONFIG.COLORS.ROAD;
-                    ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
-                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
-                    ctx.strokeRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
-                    break;
-                case 'building':
-                    ctx.fillStyle = CONFIG.COLORS.BUILDING;
-                    ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-                    ctx.fillRect(screenX + 4, screenY + 4, 8, 8);
-                    break;
-                case 'water':
-                    ctx.fillStyle = CONFIG.COLORS.WATER;
-                    ctx.fillRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
-                    ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-                    ctx.strokeRect(screenX, screenY, CONFIG.TILE_SIZE, CONFIG.TILE_SIZE);
-                    break;
-            }
-        }
-    }
-}
-
-// ========================================
-// 水坑绘制
-// ========================================
-function drawPuddles(offsetX, offsetY) {
-    gameState.puddles.forEach(puddle => {
-        const screenX = puddle.x * CONFIG.TILE_SIZE - offsetX;
-        const screenY = puddle.y * CONFIG.TILE_SIZE - offsetY;
-        const size = CONFIG.TILE_SIZE;
-        
-        // 水坑底色
-        ctx.fillStyle = CONFIG.COLORS.PUDDLE;
-        ctx.fillRect(screenX + 4, screenY + 8, size - 8, 16);
-        
-        // 水坑反光
-        ctx.fillStyle = 'rgba(100, 150, 255, 0.4)';
-        ctx.fillRect(screenX + 6, screenY + 10, 8, 4);
-        
-        // 水坑边框
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(screenX + 4, screenY + 8, size - 8, 16);
-    });
-}
-
-// ========================================
-// 粒子系统
-// ========================================
-class Particle {
-    constructor(x, y, vx, vy, color, lifetime) {
-        this.x = x;
-        this.y = y;
-        this.vx = vx;
-        this.vy = vy;
-        this.color = color;
-        this.lifetime = lifetime;
-        this.maxLifetime = lifetime;
-    }
-    
-    update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vy += 0.1; // 重力
-        this.lifetime--;
-    }
-    
-    draw(ctx) {
-        const alpha = this.lifetime / this.maxLifetime;
-        ctx.fillStyle = this.color.replace(')', `, ${alpha})`).replace('rgb', 'rgba');
-        ctx.fillRect(this.x, this.y, 4, 4);
-    }
-}
-
-function createWaterSplash(x, y, offsetX, offsetY) {
-    const screenX = x * CONFIG.TILE_SIZE - offsetX + CONFIG.TILE_SIZE / 2;
-    const screenY = y * CONFIG.TILE_SIZE - offsetY + CONFIG.TILE_SIZE / 2;
-    
-    // 生成8个水花粒子
-    for (let i = 0; i < 8; i++) {
-        const angle = (i / 8) * Math.PI * 2;
-        const speed = 2 + Math.random() * 2;
-        const vx = Math.cos(angle) * speed;
-        const vy = Math.sin(angle) * speed - 1;
-        
-        const particle = new Particle(
-            screenX,
-            screenY,
-            vx,
-            vy,
-            'rgb(100, 150, 255)',
-            30
-        );
-        gameState.particles.push(particle);
-    }
-}
-
-function updateParticles() {
-    for (let i = gameState.particles.length - 1; i >= 0; i--) {
-        gameState.particles[i].update();
-        if (gameState.particles[i].lifetime <= 0) {
-            gameState.particles.splice(i, 1);
-        }
-    }
-}
-
-function drawParticles(ctx) {
-    gameState.particles.forEach(particle => {
-        particle.draw(ctx);
-    });
-}
-
-// ========================================
-// 角色绘制
-// ========================================
-function drawPlayer(screenX, screenY) {
-    const size = CONFIG.TILE_SIZE;
-    
-    if (gameState.isSitting) {
-        // 坐下状态
-        ctx.fillStyle = '#ff69b4';
-        ctx.fillRect(screenX + 4, screenY + 16, size - 8, 12);
-        
-        ctx.fillStyle = '#ffc0cb';
-        ctx.fillRect(screenX + 6, screenY + 2, size - 12, size - 14);
-        
-        ctx.fillStyle = '#000';
-        ctx.fillRect(screenX + 10, screenY + 6, 3, 3);
-        ctx.fillRect(screenX + 19, screenY + 6, 3, 3);
-        
-        ctx.fillRect(screenX + 13, screenY + 12, 6, 2);
-    } else {
-        // 站立状态
-        ctx.fillStyle = '#ffc0cb';
-        ctx.fillRect(screenX + 6, screenY, size - 12, size - 8);
-        
-        ctx.fillStyle = '#ff69b4';
-        ctx.fillRect(screenX + 8, screenY + 12, size - 16, size - 18);
-        
-        ctx.fillStyle = '#000';
-        ctx.fillRect(screenX + 10, screenY + 4, 3, 4);
-        ctx.fillRect(screenX + 19, screenY + 4, 3, 4);
-        
-        ctx.fillRect(screenX + 13, screenY + 10, 6, 2);
-    }
-}
-
-// ========================================
-// 流浪猫绘制
-// ========================================
-function drawCat(x, y, offsetX, offsetY) {
-    const screenX = x * CONFIG.TILE_SIZE - offsetX;
-    const screenY = y * CONFIG.TILE_SIZE - offsetY;
-    const size = CONFIG.TILE_SIZE;
-    
-    ctx.fillStyle = '#ff8c00';
-    ctx.fillRect(screenX + 4, screenY + 10, size - 8, 12);
-    
-    ctx.fillStyle = '#ff8c00';
-    ctx.fillRect(screenX + 8, screenY + 2, 16, 12);
-    
-    ctx.fillStyle = '#ff8c00';
-    ctx.fillRect(screenX + 10, screenY, 4, 4);
-    ctx.fillRect(screenX + 18, screenY, 4, 4);
-    
-    ctx.fillStyle = '#ff6347';
-    ctx.fillRect(screenX + 11, screenY + 1, 2, 2);
-    ctx.fillRect(screenX + 19, screenY + 1, 2, 2);
-    
-    ctx.fillStyle = '#000';
-    ctx.fillRect(screenX + 12, screenY + 4, 3, 3);
-    ctx.fillRect(screenX + 17, screenY + 4, 3, 3);
-    
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(screenX + 13, screenY + 5, 1, 1);
-    ctx.fillRect(screenX + 18, screenY + 5, 1, 1);
-    
-    ctx.fillStyle = '#ff6347';
-    ctx.fillRect(screenX + 15, screenY + 8, 2, 2);
-}
-
-// ========================================
-// 长椅绘制
-// ========================================
-function drawBench(x, y, offsetX, offsetY) {
-    const screenX = x * CONFIG.TILE_SIZE - offsetX;
-    const screenY = y * CONFIG.TILE_SIZE - offsetY;
-    const size = CONFIG.TILE_SIZE;
-    
-    ctx.fillStyle = '#8b4513';
-    ctx.fillRect(screenX + 2, screenY + 14, size - 4, 8);
-    
-    ctx.fillStyle = '#654321';
-    ctx.fillRect(screenX + 4, screenY + 22, 4, 8);
-    ctx.fillRect(screenX + size - 8, screenY + 22, 4, 8);
-    
-    ctx.fillStyle = '#a0522d';
-    ctx.fillRect(screenX + 3, screenY + 8, size - 6, 6);
-    
-    drawHeart(screenX + 12, screenY + 4, '#ff1493');
-}
-
-function drawHeart(x, y, color) {
-    ctx.fillStyle = color;
-    ctx.fillRect(x, y, 3, 3);
-    ctx.fillRect(x + 5, y, 3, 3);
-    ctx.fillRect(x + 1, y + 3, 6, 2);
-    ctx.fillRect(x + 2, y + 5, 4, 1);
-}
-
-// ========================================
-// 喷泉绘制
-// ========================================
-function drawFountain(x, y, offsetX, offsetY) {
-    const screenX = x * CONFIG.TILE_SIZE - offsetX;
-    const screenY = y * CONFIG.TILE_SIZE - offsetY;
-    const size = CONFIG.TILE_SIZE;
-    
-    ctx.fillStyle = '#808080';
-    ctx.fillRect(screenX + 2, screenY + 10, size - 4, size - 12);
-    
-    ctx.fillStyle = '#4f90d3';
-    ctx.fillRect(screenX + 6, screenY + 14, size - 12, size - 18);
-    
-    ctx.fillStyle = '#696969';
-    ctx.fillRect(screenX + 12, screenY + 12, 8, 8);
-    
-    ctx.fillStyle = '#87ceeb';
-    ctx.beginPath();
-    ctx.arc(screenX + 16, screenY + 10, 3, 0, Math.PI * 2);
-    ctx.fill();
-}
-
-// ========================================
-// NPC 小姐姐绘制
-// ========================================
-function drawNPC(x, y, offsetX, offsetY) {
-    const screenX = x * CONFIG.TILE_SIZE - offsetX;
-    const screenY = y * CONFIG.TILE_SIZE - offsetY;
-    const size = CONFIG.TILE_SIZE;
-    
-    // 长发
-    ctx.fillStyle = '#333';
-    ctx.fillRect(screenX + 4, screenY - 2, size - 8, 8);
-    
-    // 头部
-    ctx.fillStyle = '#fdb4d4';
-    ctx.fillRect(screenX + 6, screenY + 4, size - 12, 12);
-    
-    // 身体
-    ctx.fillStyle = '#ff69b4';
-    ctx.fillRect(screenX + 8, screenY + 14, size - 16, 12);
-    
-    // 眼睛
-    ctx.fillStyle = '#000';
-    ctx.fillRect(screenX + 10, screenY + 8, 3, 3);
-    ctx.fillRect(screenX + 19, screenY + 8, 3, 3);
-    
-    // 眼睛高光
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(screenX + 11, screenY + 9, 1, 1);
-    ctx.fillRect(screenX + 20, screenY + 9, 1, 1);
-    
-    // 嘴巴
-    ctx.fillStyle = '#ff6b9d';
-    ctx.fillRect(screenX + 13, screenY + 14, 6, 2);
-    
-    // 腮红
-    ctx.fillStyle = 'rgba(255, 105, 180, 0.4)';
-    ctx.fillRect(screenX + 8, screenY + 10, 2, 2);
-    ctx.fillRect(screenX + 22, screenY + 10, 2, 2);
-}
-
-// ========================================
-// NPC 聊天提示框
-// ========================================
-function drawNPCPrompt(offsetX, offsetY) {
-    const npc = gameState.npc;
-    if (!npc || !canTalkToNPC()) return;
-    
-    const screenX = npc.x * CONFIG.TILE_SIZE - offsetX;
-    const screenY = npc.y * CONFIG.TILE_SIZE - offsetY;
-    
-    // 提示框背景
-    ctx.fillStyle = 'rgba(255, 192, 203, 0.9)';
-    ctx.fillRect(screenX + 2, screenY - 20, 28, 16);
-    
-    // 提示框边框
-    ctx.strokeStyle = '#ff69b4';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(screenX + 2, screenY - 20, 28, 16);
-    
-    // 文字
-    ctx.fillStyle = '#000';
-    ctx.font = '10px Courier';
-    ctx.fillText('按E', screenX + 8, screenY - 8);
-}
-
-// ========================================
-// 物品绘制
-// ========================================
-function drawItems(offsetX, offsetY) {
-    gameState.items.forEach(item => {
-        const screenX = item.x * CONFIG.TILE_SIZE - offsetX;
-        const screenY = item.y * CONFIG.TILE_SIZE - offsetY;
-        const size = CONFIG.TILE_SIZE;
-        
-        if (item.type === 'coin') {
-            ctx.fillStyle = '#ffd700';
-            ctx.fillRect(screenX + 8, screenY + 8, 16, 16);
-            ctx.strokeStyle = '#ffaa00';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(screenX + 8, screenY + 8, 16, 16);
-            
-            ctx.fillStyle = '#ffaa00';
-            ctx.fillRect(screenX + 12, screenY + 14, 8, 2);
-        } else if (item.type === 'driedFish') {
-            ctx.fillStyle = '#d2691e';
-            ctx.fillRect(screenX + 6, screenY + 10, 20, 12);
-            ctx.fillStyle = '#8b4513';
-            ctx.fillRect(screenX + 8, screenY + 12, 2, 8);
-            ctx.fillRect(screenX + 14, screenY + 12, 2, 8);
-            ctx.fillRect(screenX + 20, screenY + 12, 2, 8);
-        }
-    });
-}
-
-// ========================================
-// 碰撞检测
-// ========================================
-function canWalkOn(x, y) {
-    if (x < 0 || x >= CONFIG.MAP_WIDTH || y < 0 || y >= CONFIG.MAP_HEIGHT) {
-        return false;
-    }
-    return gameMap[y][x] !== 'building';
-}
-
-function getDistance(x1, y1, x2, y2) {
-    return Math.abs(x1 - x2) + Math.abs(y1 - y2);
-}
-
-function canTalkToNPC() {
-    const npc = gameState.npc;
-    if (!npc) return false;
-    return getDistance(gameState.playerX, gameState.playerY, npc.x, npc.y) <= 1 &&
-           !gameState.isChattingWithNPC;
-}
-
-// ========================================
-// 玩家移动更新（修复版）
-// ========================================
-function updatePlayer() {
-    if (gameState.isSitting || gameState.isChattingWithNPC || gameState.isPaused) return;
-    
-    // ✅ 只处理待处理的移动
-    if (pendingMove && !gameState.isMoving) {
-        const newX = gameState.playerX + pendingMove.dx;
-        const newY = gameState.playerY + pendingMove.dy;
-        
-        if (canWalkOn(newX, newY)) {
-            gameState.playerX = newX;
-            gameState.playerY = newY;
-            gameState.isMoving = true;  // ✅ 标记为正在移动
-            
-            // 检查长椅
-            if (gameState.playerX === specialLocations.bench.x && 
-                gameState.playerY === specialLocations.bench.y) {
-                gameState.isSitting = true;
-                gameState.benchSitTime = Date.now();
-                gameState.bubbleTime = Date.now();
-            }
-            
-            // 检查水坑
-            checkPuddleCollision();
-        }
-        
-        pendingMove = null;  // ✅ 清除待处理的移动
-    }
-    
-    // 猫咪跟随
-    if (gameState.cat.following) {
-        updateCatFollowing();
-    }
-}
-
-// ========================================
-// 水坑碰撞检测
-// ========================================
-function checkPuddleCollision() {
-    const puddle = gameState.puddles.find(p => 
-        p.x === gameState.playerX && p.y === gameState.playerY
-    );
-    
-    if (puddle && !puddle.splashed) {
-        puddle.splashed = true;
-        const offsetX = gameState.playerX * CONFIG.TILE_SIZE - CONFIG.CANVAS_WIDTH / 2 + CONFIG.TILE_SIZE / 2;
-        const offsetY = gameState.playerY * CONFIG.TILE_SIZE - CONFIG.CANVAS_HEIGHT / 2 + CONFIG.TILE_SIZE / 2;
-        createWaterSplash(gameState.playerX, gameState.playerY, offsetX, offsetY);
-        
-        // 1秒后重置
-        setTimeout(() => {
-            puddle.splashed = false;
-        }, 1000);
-    }
-}
-
-// ========================================
-// 猫咪跟随逻辑
-// ========================================
-function updateCatFollowing() {
-    gameState.cat.x = gameState.cat.lastPlayerX;
-    gameState.cat.y = gameState.cat.lastPlayerY;
-    gameState.cat.lastPlayerX = gameState.playerX;
-    gameState.cat.lastPlayerY = gameState.playerY;
-}
-
-// ========================================
-// 物品生成
-// ========================================
-function generateItems() {
-    const items = [];
-    for (let i = 0; i < 8; i++) {
-        let x, y;
-        do {
-            x = Math.floor(Math.random() * CONFIG.MAP_WIDTH);
-            y = Math.floor(Math.random() * CONFIG.MAP_HEIGHT);
-        } while (!canWalkOn(x, y) || 
-                 (x === gameState.playerX && y === gameState.playerY) ||
-                 (x >= 40 && x <= 45 && y >= 30 && y <= 35));
-        
-        items.push({
-            x: x,
-            y: y,
-            type: Math.random() > 0.5 ? 'coin' : 'driedFish'
-        });
-    }
-    return items;
-}
-
-gameState.items = generateItems();
-
-// ========================================
-// 物品拾取
-// ========================================
-function checkItemPickup() {
-    for (let i = gameState.items.length - 1; i >= 0; i--) {
-        const item = gameState.items[i];
-        if (item.x === gameState.playerX && item.y === gameState.playerY) {
-            if (item.type === 'coin') {
-                gameState.inventory.coin++;
-                createFloatingBubble(gameState.playerX, gameState.playerY, '🪙');
-            } else if (item.type === 'driedFish') {
-                gameState.inventory.driedFish++;
-                createFloatingBubble(gameState.playerX, gameState.playerY, '🐟');
-            }
-            gameState.items.splice(i, 1);
-            updateInventoryUI();
-            break;
-        }
-    }
-}
-
-// ========================================
-// 浮动气泡
-// ========================================
-function createFloatingBubble(x, y, text) {
-    const bubble = document.createElement('div');
-    bubble.className = 'floating-bubble';
-    bubble.textContent = text;
-    bubble.style.left = (x * CONFIG.TILE_SIZE + CONFIG.CANVAS_WIDTH / 2 - gameState.playerX * CONFIG.TILE_SIZE) + 'px';
-    bubble.style.top = (y * CONFIG.TILE_SIZE + 100 - gameState.playerY * CONFIG.TILE_SIZE) + 'px';
-    document.body.appendChild(bubble);
-    
-    setTimeout(() => bubble.remove(), 1500);
-}
-
-// ========================================
-// 交互系统
-// ========================================
-
-// 流浪猫交互
-function interactWithCat() {
-    if (getDistance(gameState.playerX, gameState.playerY, 
-                    specialLocations.cat.x, specialLocations.cat.y) <= 1) {
-        if (gameState.inventory.driedFish > 0) {
-            gameState.inventory.driedFish--;
-            gameState.cat.following = true;
-            gameState.cat.lastPlayerX = gameState.playerX - 1;
-            gameState.cat.lastPlayerY = gameState.playerY;
-            createFloatingBubble(specialLocations.cat.x, specialLocations.cat.y, '喵~❤');
-            updateInventoryUI();
-        } else {
-            createFloatingBubble(specialLocations.cat.x, specialLocations.cat.y, '喵？');
-        }
-    }
-}
-
-// 喷泉交互
-function interactWithFountain() {
-    if (getDistance(gameState.playerX, gameState.playerY,
-                    specialLocations.fountain.x, specialLocations.fountain.y) <= 1) {
-        if (gameState.inventory.coin > 0) {
-            gameState.inventory.coin--;
-            showWishingDialog();
-            updateInventoryUI();
-        } else {
-            showSimpleDialog('喷泉说', '需要一枚金币才能许愿呢~');
-        }
-    }
-}
-
-// NPC 交互
-function interactWithNPC() {
-    const npc = gameState.npc;
-    if (!npc || !canTalkToNPC()) return;
-    
-    gameState.isChattingWithNPC = true;
-    npc.currentDialogue = NPCDialogues[Math.floor(Math.random() * NPCDialogues.length)];
-    showNPCDialog(npc);
-}
-
-// 统一交互处理
-function handleInteraction() {
-    if (gameState.dialogActive) return;
-    
-    interactWithCat();
-    interactWithFountain();
-    interactWithNPC();
-}
-
-// ========================================
-// 对话框系统
-// ========================================
-
-const wishes = [
-    '✨ 运势：大吉！\n今天老板绝对不会转到你身后。',
-    '✨ 运势：中吉！\n适合在工位上偷偷喝一杯奶茶。',
-    '✨ 运势：小吉！\n你的代码今天编译一次就能过。',
-    '✨ 运势：上上签！\n今天不会被追bug..吧？',
-    '✨ 运势：吉！\n下午茶时间会特别长。',
-    '✨ 运势：平！\n平稳度过一天，不出问题最好。'
-];
-
-function showWishingDialog() {
-    const randomWish = wishes[Math.floor(Math.random() * wishes.length)];
-    const dialog = document.createElement('div');
-    dialog.className = 'pixel-dialog';
-    
-    const title = document.createElement('div');
-    title.className = 'pixel-dialog-title';
-    title.textContent = '今日摸鱼运势';
-    
-    const content = document.createElement('div');
-    content.className = 'pixel-dialog-content';
-    content.textContent = randomWish;
-    
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'pixel-dialog-close';
-    closeBtn.textContent = '知道了';
-    closeBtn.onclick = () => {
-        dialog.remove();
-        gameState.dialogActive = false;
-    };
-    
-    dialog.appendChild(title);
-    dialog.appendChild(content);
-    dialog.appendChild(closeBtn);
-    document.body.appendChild(dialog);
-    
-    gameState.dialogActive = true;
-}
-
-function showNPCDialog(npc) {
-    const dialog = document.createElement('div');
-    dialog.className = 'pixel-dialog';
-    
-    const title = document.createElement('div');
-    title.className = 'pixel-dialog-title';
-    title.textContent = npc.name + '说：';
-    
-    const content = document.createElement('div');
-    content.className = 'pixel-dialog-content';
-    content.textContent = npc.currentDialogue;
-    
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'pixel-dialog-close';
-    closeBtn.textContent = '好的呢';
-    closeBtn.onclick = () => {
-        dialog.remove();
-        gameState.isChattingWithNPC = false;
-        gameState.dialogActive = false;
-    };
-    
-    dialog.appendChild(title);
-    dialog.appendChild(content);
-    dialog.appendChild(closeBtn);
-    document.body.appendChild(dialog);
-    
-    gameState.dialogActive = true;
-}
-
-function showSimpleDialog(title, content) {
-    const dialog = document.createElement('div');
-    dialog.className = 'pixel-dialog';
-    
-    const titleDiv = document.createElement('div');
-    titleDiv.className = 'pixel-dialog-title';
-    titleDiv.textContent = title;
-    
-    const contentDiv = document.createElement('div');
-    contentDiv.className = 'pixel-dialog-content';
-    contentDiv.textContent = content;
-    
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'pixel-dialog-close';
-    closeBtn.textContent = '关闭';
-    closeBtn.onclick = () => {
-        dialog.remove();
-        gameState.dialogActive = false;
-    };
-    
-    dialog.appendChild(titleDiv);
-    dialog.appendChild(contentDiv);
-    dialog.appendChild(closeBtn);
-    document.body.appendChild(dialog);
-    
-    gameState.dialogActive = true;
-}
-
-// ========================================
-// 长椅挂机气泡
-// ========================================
-const bubbles = ['Zzz...', '❤', '🎵'];
-
-function updateBenchBubbles() {
-    if (!gameState.isSitting) return;
-    
-    const now = Date.now();
-    if (now - gameState.bubbleTime > 2000) {
-        const bubble = bubbles[Math.floor(Math.random() * bubbles.length)];
-        createFloatingBubble(gameState.playerX, gameState.playerY - 1, bubble);
-        gameState.bubbleTime = now;
-    }
-}
-
-// 站起来（修复版）
-window.addEventListener('keydown', (e) => {
-    if (gameState.isSitting && 
-        (e.key === 'ArrowUp' || e.key === 'ArrowDown' || 
-         e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
-         e.key === 'w' || e.key === 'W' || 
-         e.key === 'a' || e.key === 'A' || 
-         e.key === 's' || e.key === 'S' || 
-         e.key === 'd' || e.key === 'D')) {
-        gameState.isSitting = false;
-        gameState.isMoving = false;  // ✅ 重置移动状态
-    }
-    
-    // 关闭 NPC 对话
-    if (gameState.isChattingWithNPC && 
-        (e.key === 'ArrowUp' || e.key === 'ArrowDown' || 
-         e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
-         e.key === 'e' || e.key === 'E')) {
-        gameState.isChattingWithNPC = false;
-        gameState.dialogActive = false;
-        gameState.isMoving = false;  // ✅ 重置移动状态
-    }
-});
-
-// ========================================
-// UI 更新
-// ========================================
-function updateInventoryUI() {
-    const inventorySlots = document.getElementById('inventorySlots');
-    inventorySlots.innerHTML = '';
-    
-    if (gameState.inventory.coin > 0) {
-        const coinItem = document.createElement('div');
-        coinItem.className = 'inventory-item';
-        coinItem.innerHTML = `
-            <span class="inventory-item-emoji">🪙</span>
-            <span>金币</span>
-            <span class="inventory-item-count">${gameState.inventory.coin}</span>
-        `;
-        inventorySlots.appendChild(coinItem);
-    }
-    
-    if (gameState.inventory.driedFish > 0) {
-        const fishItem = document.createElement('div');
-        fishItem.className = 'inventory-item';
-        fishItem.innerHTML = `
-            <span class="inventory-item-emoji">🐟</span>
-            <span>小鱼干</span>
-            <span class="inventory-item-count">${gameState.inventory.driedFish}</span>
-        `;
-        inventorySlots.appendChild(fishItem);
-    }
-    
-    if (gameState.inventory.coin === 0 && gameState.inventory.driedFish === 0) {
-        inventorySlots.innerHTML = '<div style="color: #999; font-size: 11px; padding: 8px; text-align: center;">物品栏为空</div>';
-    }
-    
-    const total = gameState.inventory.coin + gameState.inventory.driedFish;
-    document.getElementById('stats').textContent = `收集物品: ${total}`;
-}
-
-// ========================================
-// 主游戏循环
-// ========================================
-function gameLoop() {
-    if (gameState.isBossKeyActive) {
-        requestAnimationFrame(gameLoop);
+        e.preventDefault();
+        toggleBossMode();
         return;
     }
-    
-    const offsetX = gameState.playerX * CONFIG.TILE_SIZE - CONFIG.CANVAS_WIDTH / 2 + CONFIG.TILE_SIZE / 2;
-    const offsetY = gameState.playerY * CONFIG.TILE_SIZE - CONFIG.CANVAS_HEIGHT / 2 + CONFIG.TILE_SIZE / 2;
-    
-    // 清空画布
-    ctx.fillStyle = '#e0f4f7';
-    ctx.fillRect(0, 0, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT);
-    
-    // 绘制地图
-    drawMap(offsetX, offsetY);
-    
-    // 绘制水坑
-    drawPuddles(offsetX, offsetY);
-    
-    // 绘制特殊地点
-    drawBench(specialLocations.bench.x, specialLocations.bench.y, offsetX, offsetY);
-    drawFountain(specialLocations.fountain.x, specialLocations.fountain.y, offsetX, offsetY);
-    
-    // 绘制 NPC
-    drawNPC(gameState.npc.x, gameState.npc.y, offsetX, offsetY);
-    drawNPCPrompt(offsetX, offsetY);
-    
-    // 绘制猫咪
-    drawCat(specialLocations.cat.x, specialLocations.cat.y, offsetX, offsetY);
-    if (gameState.cat.following) {
-        drawCat(gameState.cat.x, gameState.cat.y, offsetX, offsetY);
+
+    if (isPaused || player.isSitting || activeDialog) {
+        // 如果正在对话，按 E 或者方向键退出对话
+        if (activeDialog && (e.key === 'e' || e.key === 'E' || ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d'].includes(e.key.toLowerCase()))) {
+            activeDialog = null;
+        }
+        // 如果在长椅挂机，按任意方向键站起来
+        if (player.isSitting && ['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'].includes(e.key.toLowerCase())) {
+            player.isSitting = false;
+        }
+        return;
     }
+
+    const key = e.key.toLowerCase();
     
-    // 绘制物品
-    drawItems(offsetX, offsetY);
-    
-    // 绘制玩家
-    const playerScreenX = CONFIG.CANVAS_WIDTH / 2 - CONFIG.TILE_SIZE / 2;
-    const playerScreenY = CONFIG.CANVAS_HEIGHT / 2 - CONFIG.TILE_SIZE / 2;
-    drawPlayer(playerScreenX, playerScreenY);
-    
-    // 绘制粒子
-    drawParticles(ctx);
-    
-    // 更新游戏逻辑
-    if (!gameState.isPaused) {
-        updatePlayer();
-        checkItemPickup();
-        updateBenchBubbles();
-        updateParticles();
+    // 【关键修复核心】：如果角色正在一格一格移动中，直接拦截新的输入，绝不滑行多格
+    if (player.isMoving) return;
+
+    let nextGridX = player.gridX;
+    let nextGridY = player.gridY;
+    let newDir = player.direction;
+
+    if (key === 'w' || e.key === 'ArrowUp') { nextGridY--; newDir = 'up'; }
+    else if (key === 's' || e.key === 'ArrowDown') { nextGridY++; newDir = 'down'; }
+    else if (key === 'a' || e.key === 'ArrowLeft') { nextGridX--; newDir = 'left'; }
+    else if (key === 'd' || e.key === 'ArrowRight') { nextGridX++; newDir = 'right'; }
+    else if (key === 'e') {
+        // 触发互动键
+        checkInteractions();
+        return;
+    } else {
+        return; 
     }
-    
-    requestAnimationFrame(gameLoop);
+
+    player.direction = newDir;
+
+    // 地图边界控制及建筑碰撞检测
+    if (nextGridX >= 0 && nextGridX < MAP_GRID && nextGridY >= 0 && nextGridY < MAP_GRID) {
+        if (!isSolid(nextGridX, nextGridY)) {
+            player.gridX = nextGridX;
+            player.gridY = nextGridY;
+            player.targetPixelX = player.gridX * TILE_SIZE;
+            player.targetPixelY = player.gridY * TILE_SIZE;
+            player.isMoving = true; // 激活移动锁，确保平滑移到目标格前无法再次触发键入
+        }
+    }
+});
+
+// ==========================================
+// 3. 地图、建筑与生态元素初始化
+// ==========================================
+// 生成 100*100 的二维数组地图
+const gameMap = [];
+for (let y = 0; y < MAP_GRID; y++) {
+    gameMap[y] = [];
+    for (let x = 0; x < MAP_GRID; x++) {
+        // 默认全铺成道路或草地
+        gameMap[y][x] = (Math.random() < 0.15) ? 1 : 0; // 1: 草地, 0: 道路
+    }
 }
 
-// 初始化 UI
-updateInventoryUI();
+// 设定静态阻挡建筑
+function isSolid(x, y) {
+    // 固定的建筑物格子
+    if (x === 15 && y === 12) return true; // 自动售货机
+    if (x === 8 && y === 15) return true;  // NPC小姐姐固定桩
+    if (x === 20 && y === 20) return true; // 复古电视机
+    if (x === 25 && y === 10) return true; // 夹娃娃机
+    if (x === 12 && y === 8) return true;  // 音乐八音盒
+    if (x === 30 && y === 30) return true; // 许愿喷泉
+    return false;
+}
 
-// 启动游戏循环
-gameLoop();
+// ==========================================
+// 4. 有爱互动点与物品数据配置
+// ==========================================
+
+// 可拾取物品列表
+let mapItems = [
+    { id: 'coin_1', type: 'coin', name: '🪙 硬币', gridX: 12, gridY: 12, color: '#f1c40f' },
+    { id: 'coin_2', type: 'coin', name: '🪙 硬币', gridX: 25, gridY: 12, color: '#f1c40f' },
+    { id: 'fish_1', type: 'fish', name: '🐟 小鱼干', gridX: 18, gridY: 14, color: '#3498db' },
+];
+
+// 水坑系统
+const puddles = [
+    { gridX: 11, gridY: 10 },
+    { gridX: 14, gridY: 15 },
+    { gridX: 22, gridY: 25 }
+];
+
+// 电视机、八音盒等设备的运行状态
+const worldObjects = {
+    tv: { gridX: 20, gridY: 20, isOn: false, animFrame: 0 },
+    musicBox: { gridX: 12, gridY: 8, isOn: false },
+    chair: { gridX: 14, gridY: 8 },
+    cat: { gridX: 17, gridY: 14, isFollowing: false, history: [] }
+};
+
+// ==========================================
+// 5. 交互逻辑与触发事件
+// ==========================================
+function checkInteractions() {
+    // 获取玩家面对的前方格子坐标
+    let frontX = player.gridX;
+    let frontY = player.gridY;
+    if (player.direction === 'up') frontY--;
+    if (player.direction === 'down') frontY++;
+    if (player.direction === 'left') frontX--;
+    if (player.direction === 'right') frontX++;
+
+    // 1. 自动售货机互动
+    if (frontX === 15 && frontY === 12) {
+        const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
+        if (coinIdx !== -1) {
+            player.inventory.splice(coinIdx, 1);
+            player.inventory.push({ type: 'soda', name: '🥤 草莓汽水' });
+            updateInventoryUI();
+            activeDialog = "你投入了一枚硬币... 咚咚咚，获得了一瓶【🥤 草莓汽水】！";
+        } else {
+            activeDialog = "售货机闪烁着柔和的霓虹灯，但你身上没有硬币呢。";
+        }
+        return;
+    }
+
+    // 2. 夹娃娃机互动
+    if (frontX === 25 && frontY === 10) {
+        const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
+        if (coinIdx !== -1) {
+            player.inventory.splice(coinIdx, 1);
+            updateInventoryUI();
+            activeDialog = "消耗一枚金币，机械爪晃晃悠悠地降落了......";
+            setTimeout(() => {
+                if (Math.random() < 0.5) {
+                    player.inventory.push({ type: 'doll', name: '🧸 绝版小熊玩偶' });
+                    updateInventoryUI();
+                    activeDialog = "✨ 哇！运气爆棚！你抓到了一只超可爱的【🧸 绝版小熊玩偶】！";
+                } else {
+                    activeDialog = "哎呀，钩子在最后关头滑了一下，差一点点就抓到了呜呜~";
+                }
+            }, 1000);
+        } else {
+            activeDialog = "这台娃娃机里塞满了精致的玩偶，投掷一枚 [硬币] 就能抓取一次哦。";
+        }
+        return;
+    }
+
+    // 3. 与 NPC 小姐姐聊天
+    if (frontX === 8 && frontY === 15) {
+        const quotes = [
+            "嗨！今天天气真好，很适合在城里悠闲散步呢~ ☀️",
+            "你有去试过路那边的自动售货机吗？草莓汽水味道超赞！🥤",
+            "街角那只流浪的小猫看起来有点饿了，如果能喂它点小鱼干就好了。🐱",
+            "偷偷在这里摸鱼，是只属于我们两个人的秘密哦，绝对不告诉老板！🤫"
+        ];
+        activeDialog = "👧 小姐姐: \"" + quotes[Math.floor(Math.random() * quotes.length)] + "\"";
+        return;
+    }
+
+    // 4. 音乐八音盒开关
+    if (frontX === worldObjects.musicBox.gridX && frontY === worldObjects.musicBox.gridY) {
+        worldObjects.musicBox.isOn = !worldObjects.musicBox.isOn;
+        activeDialog = worldObjects.musicBox.isOn ? "🎵 你轻轻打开了八音盒，空气中开始飘荡起温暖的像素音符。" : "🎵 你合上了八音盒，周围恢复了平静。";
+        return;
+    }
+
+    // 5. 街头爱心邮箱
+    if (frontX === 30 && frontY === 30) { // 巧妙安排在喷泉旁
+        const letters = [
+            "✉️ 来自小熊的信：今天也要记得好好吃饭，千万不要累着自己哦！🐾",
+            "✉️ 来自小兔的信：新开的那家娃娃机概率超良心，快带上硬币去试试吧！🐇",
+            "✉️ 来自小猫的信：喵呜... 谢谢你把这个世界建造得这么温柔~ 🐾",
+            "✉️ 来自开发者的备忘：感谢你来到这个像素小世界，愿你的每一天都充满阳光！✨"
+        ];
+        activeDialog = letters[Math.floor(Math.random() * letters.length)];
+        return;
+    }
+
+    // 6. 许愿喷泉投币
+    if (frontX === 30 && frontY === 30 || (Math.abs(player.gridX-30)<=1 && Math.abs(player.gridY-30)<=1)) {
+        const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
+        if (coinIdx !== -1) {
+            player.inventory.splice(coinIdx, 1);
+            updateInventoryUI();
+            const fortunes = [
+                "✨ 大吉！今天老板绝对不会转到你身后，安心摸鱼吧！",
+                "✨ 中吉！今天适合在工位上偷偷喝一杯双倍糖的冰奶茶！",
+                "✨ 小吉！你的代码和工作今天都会极度顺畅，一次就过！",
+                "✨ 暖心！今天下班的路上，你可能会遇到一只主动蹭你的小猫。🐱"
+            ];
+            activeDialog = fortunes[Math.floor(Math.random() * fortunes.length)];
+            // 喷泉溅水花特效
+            for(let i=0; i<15; i++) {
+                particles.push({
+                    x: 30 * TILE_SIZE + 16 + (Math.random()*20-10),
+                    y: 30 * TILE_SIZE + 16 + (Math.random()*20-10),
+                    vx: Math.random() * 2 - 1,
+                    vy: -Math.random() * 2 - 1,
+                    color: '#a5d6a7',
+                    life: 30 + Math.random()*20
+                });
+            }
+        } else {
+            activeDialog = "波光粼粼的像素许愿喷泉。向里面投掷一枚 [硬币] 可以测一测今天的摸鱼运势哦。";
+        }
+        return;
+    }
+
+    // 7. 流浪猫投喂
+    if (frontX === worldObjects.cat.gridX && frontY === worldObjects.cat.gridY && !worldObjects.cat.isFollowing) {
+        const fishIdx = player.inventory.findIndex(i => i.type === 'fish');
+        if (fishIdx !== -1) {
+            player.inventory.splice(fishIdx, 1);
+            updateInventoryUI();
+            worldObjects.cat.isFollowing = true;
+            activeDialog = "🐱 咪呜~❤ 小猫高兴地吃下了小鱼干，轻轻蹭了蹭你，决定以后都跟着你走啦！";
+        } else {
+            activeDialog = "喵呜... 瘦弱的流浪猫怯生生地看着你，它好像很想吃美味的 [小鱼干] 。";
+        }
+        return;
+    }
+}
+
+// 检查可拾取物品与踩水坑
+function checkStepTriggers() {
+    // 物品自动拾取
+    const itemIdx = mapItems.findIndex(i => i.gridX === player.gridX && i.gridY === player.gridY);
+    if (itemIdx !== -1) {
+        const item = mapItems[itemIdx];
+        player.inventory.push({ type: item.type, name: item.name });
+        mapItems.splice(itemIdx, 1);
+        updateInventoryUI();
+    }
+
+    // 踩水坑粒子动效触发
+    const inPuddle = puddles.some(p => p.gridX === player.gridX && p.gridY === player.gridY);
+    if (inPuddle) {
+        for (let i = 0; i < 6; i++) {
+            particles.push({
+                x: player.pixelX + 16,
+                y: player.pixelY + 28,
+                vx: Math.random() * 3 - 1.5,
+                vy: -Math.random() * 1.5 - 0.5,
+                color: '#74b9ff',
+                life: 15 + Math.random() * 10
+            });
+        }
+    }
+
+    // 长椅挂机检测
+    if (player.gridX === worldObjects.chair.gridX && player.gridY === worldObjects.chair.gridY) {
+        player.isSitting = true;
+    }
+}
+
+// 更新物品栏 UI 渲染
+function updateInventoryUI() {
+    const slots = document.getElementById('inventorySlots');
+    slots.innerHTML = '';
+    // 固定的 6 个展示格子格子
+    for (let i = 0; i < 6; i++) {
+        const slotEl = document.createElement('div');
+        slotEl.className = 'inventory-slot';
+        slotEl.style.width = '50px';
+        slotEl.style.height = '50px';
+        slotEl.style.border = '2px solid #2c2c2c';
+        slotEl.style.backgroundColor = '#f5f6fa';
+        slotEl.style.display = 'flex';
+        slotEl.style.justifyContent = 'center';
+        slotEl.style.alignItems = 'center';
+        slotEl.style.fontSize = '20px';
+        slotEl.style.borderRadius = '4px';
+
+        if (player.inventory[i]) {
+            // 解析前置 Emoji 用于显示
+            slotEl.innerText = player.inventory[i].name.split(' ')[0];
+            slotEl.title = player.inventory[i].name;
+        }
+        slots.appendChild(slotEl);
+    }
+    document.getElementById('stats').innerText = `收集物品: ${player.inventory.length}`;
+}
+
+// ==========================================
+// 6. 核心渲染与状态更新循环 (Game Loop)
+// ==========================================
+function update() {
+    if (isPaused || isBossMode) return;
+
+    // 平滑插值计算玩家角色的移动（平滑走格子过渡动画）
+    if (player.isMoving) {
+        if (player.pixelX < player.targetPixelX) player.pixelX = Math.min(player.pixelX + player.moveSpeed, player.targetPixelX);
+        else if (player.pixelX > player.targetPixelX) player.pixelX = Math.max(player.pixelX - player.moveSpeed, player.targetPixelX);
+
+        if (player.pixelY < player.targetPixelY) player.pixelY = Math.min(player.pixelY + player.moveSpeed, player.targetPixelY);
+        else if (player.pixelY > player.targetPixelY) player.pixelY = Math.max(player.pixelY - player.moveSpeed, player.targetPixelY);
+
+        // 到达网格目标点，释放锁状态
+        if (player.pixelX === player.targetPixelX && player.pixelY === player.targetPixelY) {
+            // 猫咪队列历史记录更新
+            if (worldObjects.cat.isFollowing) {
+                worldObjects.cat.history.push({ x: player.gridX, y: player.gridY });
+                if (worldObjects.cat.history.length > 1) {
+                    const trail = worldObjects.cat.history.shift();
+                    worldObjects.cat.gridX = trail.x;
+                    worldObjects.cat.gridY = trail.y;
+                }
+            }
+
+            player.isMoving = false;
+            checkStepTriggers(); // 触发踩格子事件
+        }
+    }
+
+    // 电视机自动化邻近距离开关检测逻辑
+    const distToTV = Math.sqrt(Math.pow(player.gridX - worldObjects.tv.gridX, 2) + Math.pow(player.gridY - worldObjects.tv.gridY, 2));
+    worldObjects.tv.isOn = distToTV <= 2.5;
+    if (worldObjects.tv.isOn) worldObjects.tv.animFrame++;
+
+    // 八音盒音符粒子发射器
+    if (worldObjects.musicBox.isOn && Math.random() < 0.08) {
+        particles.push({
+            x: worldObjects.musicBox.gridX * TILE_SIZE + 16,
+            y: worldObjects.musicBox.gridY * TILE_SIZE,
+            vx: Math.random() * 1 - 0.5,
+            vy: -Math.random() * 1 - 0.5,
+            color: `hsl(${Math.random() * 360}, 80%, 70%)`,
+            life: 40,
+            isNote: true
+        });
+    }
+
+    // 长椅挂机治愈气泡定时器循环
+    if (player.isSitting) {
+        player.sitTimer++;
+        if (player.sitTimer % 120 === 0 && Math.random() < 0.6) {
+            const bubbles = ['❤️', '💤', '🎵', '☁️'];
+            activeDialog = "💤 挂机治愈中... 头顶冒出气泡 " + bubbles[Math.floor(Math.random() * bubbles.length)] + " (按任意方向键起身)";
+        }
+    }
+
+    // 更新粒子状态寿命
+    particles.forEach((p, idx) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+        if (p.life <= 0) particles.splice(idx, 1);
+    });
+}
+
+function draw() {
+    ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+
+    // 摄像机镜头裁剪跟随计算 (Camera Bounds Control)
+    let camX = player.pixelX - VIEW_WIDTH / 2 + TILE_SIZE / 2;
+    let camY = player.pixelY - VIEW_HEIGHT / 2 + TILE_SIZE / 2;
+
+    // 锁死镜头不穿过 100*100 的总地图边缘
+    camX = Math.max(0, Math.min(camX, MAP_GRID * TILE_SIZE - VIEW_WIDTH));
+    camY = Math.max(0, Math.min(camY, MAP_GRID * TILE_SIZE - VIEW_HEIGHT));
+
+    // 计算当前可见视口的网格索引区间（极大提升渲染性能）
+    const startX = Math.floor(camX / TILE_SIZE);
+    const endX = Math.min(startX + Math.ceil(VIEW_WIDTH / TILE_SIZE) + 1, MAP_GRID);
+    const startY = Math.floor(camY / TILE_SIZE);
+    const endY = Math.min(startY + Math.ceil(VIEW_HEIGHT / TILE_SIZE) + 1, MAP_GRID);
+
+    // 1. 绘制像素地图格子
+    for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+            const screenX = x * TILE_SIZE - camX;
+            const screenY = y * TILE_SIZE - camY;
+
+            if (gameMap[y][x] === 1) {
+                ctx.fillStyle = '#9bbc0f'; // 复古浅绿草地像素
+            } else {
+                ctx.fillStyle = '#8b956d'; // 像素灰街道道路
+            }
+            ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+
+            // 绘制像素格子的细微网格边界线体现复古游戏质感
+            ctx.strokeStyle = 'rgba(0,0,0,0.03)';
+            ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+        }
+    }
+
+    // 2. 绘制路面上的水坑
+    puddles.forEach(p => {
+        const sx = p.gridX * TILE_SIZE - camX;
+        const sy = p.gridY * TILE_SIZE - camY;
+        ctx.fillStyle = '#4a69bd'; // 具有反光感的蓝色像素水坑
+        ctx.fillRect(sx + 4, sy + 8, TILE_SIZE - 8, TILE_SIZE - 12);
+        ctx.fillStyle = '#6a89cc'; // 水坑的高亮反光边边
+        ctx.fillRect(sx + 6, sy + 10, 6, 2);
+    });
+
+    // 3. 绘制静态功能建筑/互动目标点
+    // 售货机
+    drawPixelSprite(15, 12, camX, camY, '#e74c3c', '🥤');
+    // NPC 小姐姐
+    drawPixelSprite(8, 15, camX, camY, '#fd79a8', '👧');
+    // 夹娃娃机
+    drawPixelSprite(25, 10, camX, camY, '#9b59b6', '🧸');
+    // 八音盒
+    drawPixelSprite(worldObjects.musicBox.gridX, worldObjects.musicBox.gridY, camX, camY, '#e67e22', '🎵');
+    // 邮箱
+    drawPixelSprite(30, 30, camX, camY, '#d63031', '✉️');
+
+    // 绘制自动感应电视机 (带动态点亮检测渲染)
+    const tvX = worldObjects.tv.gridX * TILE_SIZE - camX;
+    const tvY = worldObjects.tv.gridY * TILE_SIZE - camY;
+    ctx.fillStyle = '#2c3e50'; // 电视外壳
+    ctx.fillRect(tvX, tvY, TILE_SIZE, TILE_SIZE);
+    if (worldObjects.tv.isOn) {
+        // 电视点亮时呈现动态闪烁色彩
+        ctx.fillStyle = (Math.floor(worldObjects.tv.animFrame / 15) % 2 === 0) ? '#1abc9c' : '#f1c40f';
+        ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
+        ctx.fillStyle = '#000';
+        ctx.font = '10px sans-serif';
+        ctx.fillText('🐱', tvX + 10, tvY + 16);
+    } else {
+        ctx.fillStyle = '#111'; // 黑屏关机
+        ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
+    }
+
+    // 4. 绘制地图上掉落的地面物品
+    mapItems.forEach(item => {
+        const ix = item.gridX * TILE_SIZE - camX;
+        const iy = item.gridY * TILE_SIZE - camY;
+        ctx.fillStyle = item.color;
+        ctx.beginPath();
+        ctx.arc(ix + 16, iy + 16, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '10px sans-serif';
+        ctx.fillText(item.type === 'coin' ? 'C' : 'F', ix + 12, iy + 20);
+    });
+
+    // 5. 绘制流浪小猫咪 (喂食后会像个尾巴一样粘着玩家)
+    const catX = worldObjects.cat.gridX * TILE_SIZE - camX;
+    const catY = worldObjects.cat.gridY * TILE_SIZE - camY;
+    ctx.fillStyle = '#f39c12';
+    ctx.fillRect(catX + 6, catY + 10, 20, 16); // 猫身体
+    ctx.fillStyle = '#d35400';
+    ctx.fillRect(catX + 20, catY + 4, 6, 6);   // 猫头
+    if (worldObjects.cat.isFollowing) {
+        ctx.fillStyle = '#e74c3c';
+        ctx.font = '10px sans-serif';
+        ctx.fillText('❤️', catX + 10, catY + 2); // 冒爱心
+    }
+
+    // 6. 绘制玩家小女孩主体像素形象
+    const px = player.pixelX - camX;
+    const py = player.pixelY - camY;
+    ctx.fillStyle = '#ff7675'; // 裙子基础色
+    ctx.fillRect(px + 4, py + 8, 24, 22);
+    ctx.fillStyle = '#ffeaa7'; // 皮肤色面部像素
+    ctx.fillRect(px + 8, py + 2, 16, 10);
+    // 根据上下左右的朝向绘制眼睛像素点体现生动的朝向细节
+    ctx.fillStyle = '#2d3436';
+    if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 10, py + 5, 2, 3);
+    if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 5, 2, 3);
+    if (player.direction === 'up') {
+        ctx.fillStyle = '#d63031'; // 背面露出可爱的小红发带
+        ctx.fillRect(px + 12, py + 1, 8, 2);
+    }
+
+    // 7. 渲染飞散的粒子特效组件
+    particles.forEach(p => {
+        const psx = p.x - camX;
+        const psy = p.y - camY;
+        ctx.fillStyle = p.color;
+        if (p.isNote) {
+            ctx.font = '12px sans-serif';
+            ctx.fillText('🎵', psx, psy);
+        } else {
+            ctx.fillRect(psx, psy, 4, 4); // 标准正方形像素碎片颗粒
+        }
+    });
+
+    // 8. 游戏内的通用全局像素对话文本框UI叠加
+    if (activeDialog) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.fillRect(40, VIEW_HEIGHT - 100, VIEW_WIDTH - 80, 80);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(42, VIEW_HEIGHT - 98, VIEW_WIDTH - 84, 76);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '14px sans-serif';
+        ctx.fillText(activeDialog, 60, VIEW_HEIGHT - 55);
+    }
+}
+
+// 绘制带有 Emoji 小标签的模块化像素建筑方法
+function drawPixelSprite(gx, gy, camX, camY, color, emoji) {
+    const sx = gx * TILE_SIZE - camX;
+    const sy = gy * TILE_SIZE - camY;
+    ctx.fillStyle = color;
+    ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+    ctx.strokeStyle = '#2c2c2c';
+    ctx.strokeRect(sx, sy, TILE_SIZE, TILE_SIZE);
+    ctx.font = '16px sans-serif';
+    ctx.fillText(emoji, sx + 8, sy + 22);
+}
+
+// 主时间轮询轴机制驱动
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+// ==========================================
+// 7. 老板键功能与交互面板 UI 操作绑定
+// ==========================================
+function toggleBossMode() {
+    isBossMode = !isBossMode;
+    const gameContainer = document.getElementById('gameContainer');
+    const bossScreen = document.getElementById('bossKeyScreen');
+
+    if (isBossMode) {
+        gameContainer.style.display = 'none';
+        bossScreen.style.display = 'block';
+        // 动态同步更新隐藏报表上的当前电脑时间
+        const now = new Date();
+        document.getElementById('bossKeyTime').innerText = now.toLocaleString();
+    } else {
+        bossScreen.style.display = 'none';
+        gameContainer.style.display = 'flex';
+        // 弹出安全重回暂停机制
+        isPaused = true;
+        document.getElementById('pauseDialog').style.display = 'flex';
+    }
+}
+
+// 绑定 HTML 的暂停窗口按钮事件响应
+document.getElementById('resumeBtn').addEventListener('click', () => {
+    isPaused = false;
+    document.getElementById('pauseDialog').style.display = 'none';
+});
+
+document.getElementById('hideBtn').addEventListener('click', () => {
+    document.getElementById('pauseDialog').style.display = 'none';
+    toggleBossMode();
+});
+
+// ==========================================
+// 8. 跑起来！游戏开机启动引导
+// ==========================================
+updateInventoryUI();
+// 初始化将部分动态事件提示语写入首帧让玩家一目了然
+activeDialog = "欢迎来到像素城市街区！使用 W/A/S/D 移动，遇到建筑前方按 E 键展开有爱交互吧~";
+loop();
