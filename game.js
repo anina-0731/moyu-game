@@ -20,14 +20,14 @@ let isPaused = false;
 let isBossMode = false;
 let activeDialog = null;    
 
-// 玩家数据结构：默认出生在屏幕中心 (15, 15)
+// 玩家数据结构：改到 (10, 10) 的绝对空旷安全区
 const player = {
-    gridX: 15,             
-    gridY: 15,             
-    pixelX: 15 * TILE_SIZE,
-    pixelY: 15 * TILE_SIZE,
-    targetPixelX: 15 * TILE_SIZE,
-    targetPixelY: 15 * TILE_SIZE,
+    gridX: 10,             // 改成 10
+    gridY: 10,             // 改成 10
+    pixelX: 10 * TILE_SIZE,
+    pixelY: 10 * TILE_SIZE,
+    targetPixelX: 10 * TILE_SIZE,
+    targetPixelY: 10 * TILE_SIZE,
     moveSpeed: 4,          
     isMoving: false,       
     direction: 'down',     
@@ -104,10 +104,16 @@ function generateRandomItems() {
 }
 
 function loadOrCreateGame() {
-    // 强制每次进入都初始化，彻底修复隐形
     initNewUniverse();
-    player.gridX = 15;
-    player.gridY = 15;
+    
+    // 💡 强行重置所有锁定状态，确保开局能动！
+    isPaused = false;
+    isBossMode = false;
+    activeDialog = null;
+    player.isSitting = false;
+
+    player.gridX = 10; // 顺便移到安全的 10, 10
+    player.gridY = 10;
     player.pixelX = player.gridX * TILE_SIZE;
     player.pixelY = player.gridY * TILE_SIZE;
     player.targetPixelX = player.pixelX;
@@ -737,6 +743,9 @@ updateInventoryUI();
 loop();
 
 setInterval(checkContinuousInput, 16);
+
+// 💡 强制网页一打开，就把焦点给到游戏画布
+canvas.focus();
 
 setTimeout(() => {
     createDialogDOM("👧 小女孩皮肤已装配！", "本地冲突旧存档已被永久洗去。这一次你绝对能闪现回广场正中心，看清自己的可爱双马尾了！");
