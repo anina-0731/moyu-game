@@ -26,7 +26,7 @@ const player = {
     targetPixelX: 10 * TILE_SIZE,
     targetPixelY: 10 * TILE_SIZE,
     moveSpeed: 4,          // 像素平滑移动速度
-    isMoving: false,       // 关键：锁定单次网格移动的标志位
+    isMoving: false,       // 核心：锁定单次网格移动的标志位
     direction: 'down',     // 朝向：up, down, left, right
     inventory: [],          // 物品栏容器
     isSitting: false,       // 是否在长椅上挂机
@@ -39,9 +39,6 @@ let particles = [];
 // ==========================================
 // 2. 核心 Bug 修复：严格的回合制单格移动系统
 // ==========================================
-// 记录当前按下的键，但在 keydown 时我们只触发一次准确的坐标加减
-const keysPressed = {};
-
 window.addEventListener('keydown', (e) => {
     if (isBossMode) return;
     
@@ -52,14 +49,23 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    // 弹窗或挂机状态下的特殊输入拦截
     if (isPaused || player.isSitting || activeDialog) {
-        // 如果正在对话，按 E 或者方向键退出对话
+        // 如果正在对话，按 E 或者方向键关闭弹窗
         if (activeDialog && (e.key === 'e' || e.key === 'E' || ['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d'].includes(e.key.toLowerCase()))) {
-            activeDialog = null;
+            removeDialogDOM();
         }
         // 如果在长椅挂机，按任意方向键站起来
         if (player.isSitting && ['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'].includes(e.key.toLowerCase())) {
             player.isSitting = false;
+            // 往下方移动一格离开长椅，防止卡死
+            let escapeY = player.gridY + 1;
+            if (escapeY < MAP_GRID && !isSolid(player.gridX, escapeY)) {
+                player.gridY = escapeY;
+                player.targetPixelX = player.gridX * TILE_SIZE;
+                player.targetPixelY = player.gridY * TILE_SIZE;
+                player.isMoving = true;
+            }
         }
         return;
     }
@@ -78,7 +84,6 @@ window.addEventListener('keydown', (e) => {
     else if (key === 'a' || e.key === 'ArrowLeft') { nextGridX--; newDir = 'left'; }
     else if (key === 'd' || e.key === 'ArrowRight') { nextGridX++; newDir = 'right'; }
     else if (key === 'e') {
-        // 触发互动键
         checkInteractions();
         return;
     } else {
@@ -100,39 +105,33 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ==========================================
-// 3. 地图、建筑与生态元素初始化
+// 3. 地图、建筑与生态元素配置
 // ==========================================
-// 生成 100*100 的二维数组地图
 const gameMap = [];
 for (let y = 0; y < MAP_GRID; y++) {
     gameMap[y] = [];
     for (let x = 0; x < MAP_GRID; x++) {
-        // 默认全铺成道路或草地
         gameMap[y][x] = (Math.random() < 0.15) ? 1 : 0; // 1: 草地, 0: 道路
     }
 }
 
-// 设定静态阻挡建筑
+// 设定静态阻挡建筑物坐标
 function isSolid(x, y) {
-    // 固定的建筑物格子
     if (x === 15 && y === 12) return true; // 自动售货机
     if (x === 8 && y === 15) return true;  // NPC小姐姐固定桩
     if (x === 20 && y === 20) return true; // 复古电视机
     if (x === 25 && y === 10) return true; // 夹娃娃机
-    if (x === 12 && y === 8) return true;  // 音乐八音盒
+    if (x === 14 && y === 8) return true;  // 爱心长椅
     if (x === 30 && y === 30) return true; // 许愿喷泉
     return false;
 }
 
-// ==========================================
-// 4. 有爱互动点与物品数据配置
-// ==========================================
-
 // 可拾取物品列表
 let mapItems = [
-    { id: 'coin_1', type: 'coin', name: '🪙 硬币', gridX: 12, gridY: 12, color: '#f1c40f' },
-    { id: 'coin_2', type: 'coin', name: '🪙 硬币', gridX: 25, gridY: 12, color: '#f1c40f' },
-    { id: 'fish_1', type: 'fish', name: '🐟 小鱼干', gridX: 18, gridY: 14, color: '#3498db' },
+    { id: 'coin_1', type: 'coin', name: '硬币', emoji: '🪙', gridX: 12, gridY: 12, color: '#f1c40f' },
+    { id: 'coin_2', type: 'coin', name: '硬币', emoji: '🪙', gridX: 25, gridY: 12, color: '#f1c40f' },
+    { id: 'coin_3', type: 'coin', name: '硬币', emoji: '🪙', gridX: 32, gridY: 28, color: '#f1c40f' },
+    { id: 'fish_1', type: 'fish', name: '小鱼干', emoji: '🐟', gridX: 18, gridY: 14, color: '#3498db' },
 ];
 
 // 水坑系统
@@ -142,19 +141,59 @@ const puddles = [
     { gridX: 22, gridY: 25 }
 ];
 
-// 电视机、八音盒等设备的运行状态
+// 动态交互设备状态管理
 const worldObjects = {
     tv: { gridX: 20, gridY: 20, isOn: false, animFrame: 0 },
-    musicBox: { gridX: 12, gridY: 8, isOn: false },
+    musicBox: { gridX: 12, gridY: 5, isOn: false }, // 挪到12,5防止和长椅重叠
     chair: { gridX: 14, gridY: 8 },
     cat: { gridX: 17, gridY: 14, isFollowing: false, history: [] }
 };
 
 // ==========================================
+// 4. 精美 DOM 对话框系统 (完美适配你的 CSS)
+// ==========================================
+function createDialogDOM(title, content) {
+    removeDialogDOM(); // 清理老弹窗
+    activeDialog = content;
+
+    const dialog = document.createElement('div');
+    dialog.className = 'pixel-dialog';
+    dialog.id = 'activePixelDialog';
+
+    dialog.innerHTML = `
+        <div class="pixel-dialog-title">${title}</div>
+        <div class="pixel-dialog-content">${content}</div>
+        <button class="pixel-dialog-close" onclick="removeDialogDOM()">确认 (E)</button>
+    `;
+    document.body.appendChild(dialog);
+}
+
+function removeDialogDOM() {
+    const dialog = document.getElementById('activePixelDialog');
+    if (dialog) dialog.remove();
+    activeDialog = null;
+}
+
+// 生成飘动的像素气泡 (适配你的 CSS .floating-bubble)
+function spawnFloatingBubble(text) {
+    const wrapper = document.getElementById('gameContainer');
+    const bubble = document.createElement('div');
+    bubble.className = 'floating-bubble';
+    bubble.innerText = text;
+    
+    // 基于 Canvas 视口中央偏上生成
+    bubble.style.left = `${canvas.offsetLeft + VIEW_WIDTH / 2 - 10}px`;
+    bubble.style.top = `${canvas.offsetTop + VIEW_HEIGHT / 2 - 40}px`;
+    bubble.style.color = '#764ba2';
+    
+    document.body.appendChild(bubble);
+    setTimeout(() => bubble.remove(), 1500);
+}
+
+// ==========================================
 // 5. 交互逻辑与触发事件
 // ==========================================
 function checkInteractions() {
-    // 获取玩家面对的前方格子坐标
     let frontX = player.gridX;
     let frontY = player.gridY;
     if (player.direction === 'up') frontY--;
@@ -167,11 +206,10 @@ function checkInteractions() {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
             player.inventory.splice(coinIdx, 1);
-            player.inventory.push({ type: 'soda', name: '🥤 草莓汽水' });
-            updateInventoryUI();
-            activeDialog = "你投入了一枚硬币... 咚咚咚，获得了一瓶【🥤 草莓汽水】！";
+            addItemToInventory('soda', '草莓汽水', '🥤');
+            createDialogDOM("自动售货机", "你投入了一枚硬币... 咚咚咚，获得了一瓶【🥤 草莓汽水】！");
         } else {
-            activeDialog = "售货机闪烁着柔和的霓虹灯，但你身上没有硬币呢。";
+            createDialogDOM("自动售货机", "售货机闪烁着柔和的霓虹灯，但你身上没有硬币呢。回去翻翻马路吧！");
         }
         return;
     }
@@ -182,18 +220,17 @@ function checkInteractions() {
         if (coinIdx !== -1) {
             player.inventory.splice(coinIdx, 1);
             updateInventoryUI();
-            activeDialog = "消耗一枚金币，机械爪晃晃悠悠地降落了......";
+            createDialogDOM("夹娃娃机", "消耗一枚金币，机械爪晃晃悠悠地降落了......请等待抓取结果。");
             setTimeout(() => {
                 if (Math.random() < 0.5) {
-                    player.inventory.push({ type: 'doll', name: '🧸 绝版小熊玩偶' });
-                    updateInventoryUI();
-                    activeDialog = "✨ 哇！运气爆棚！你抓到了一只超可爱的【🧸 绝版小熊玩偶】！";
+                    addItemToInventory('doll', '绝版小熊', '🧸');
+                    createDialogDOM("夹娃娃机", "✨ 哇！运气爆棚！你抓到了一只超可爱的【🧸 绝版小熊玩偶】！");
                 } else {
-                    activeDialog = "哎呀，钩子在最后关头滑了一下，差一点点就抓到了呜呜~";
+                    createDialogDOM("夹娃娃机", "哎呀，爪子在最后关头滑了一下，差一点点就抓到了呜呜~再试一次吧！");
                 }
             }, 1000);
         } else {
-            activeDialog = "这台娃娃机里塞满了精致的玩偶，投掷一枚 [硬币] 就能抓取一次哦。";
+            createDialogDOM("夹娃娃机", "这台娃娃机里塞满了精致的玩偶，面前按 E 键投掷一枚 [硬币] 就能抓取一次哦。");
         }
         return;
     }
@@ -206,31 +243,20 @@ function checkInteractions() {
             "街角那只流浪的小猫看起来有点饿了，如果能喂它点小鱼干就好了。🐱",
             "偷偷在这里摸鱼，是只属于我们两个人的秘密哦，绝对不告诉老板！🤫"
         ];
-        activeDialog = "👧 小姐姐: \"" + quotes[Math.floor(Math.random() * quotes.length)] + "\"";
+        const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
+        createDialogDOM("👧 路边的小姐姐", randomQuote);
         return;
     }
 
     // 4. 音乐八音盒开关
     if (frontX === worldObjects.musicBox.gridX && frontY === worldObjects.musicBox.gridY) {
         worldObjects.musicBox.isOn = !worldObjects.musicBox.isOn;
-        activeDialog = worldObjects.musicBox.isOn ? "🎵 你轻轻打开了八音盒，空气中开始飘荡起温暖的像素音符。" : "🎵 你合上了八音盒，周围恢复了平静。";
+        createDialogDOM("🎵 音乐八音盒", worldObjects.musicBox.isOn ? "你轻轻打开了八音盒，空气中开始飘荡起温暖的像素音符。" : "你合上了八音盒，周围恢复了平静。");
         return;
     }
 
-    // 5. 街头爱心邮箱
-    if (frontX === 30 && frontY === 30) { // 巧妙安排在喷泉旁
-        const letters = [
-            "✉️ 来自小熊的信：今天也要记得好好吃饭，千万不要累着自己哦！🐾",
-            "✉️ 来自小兔的信：新开的那家娃娃机概率超良心，快带上硬币去试试吧！🐇",
-            "✉️ 来自小猫的信：喵呜... 谢谢你把这个世界建造得这么温柔~ 🐾",
-            "✉️ 来自开发者的备忘：感谢你来到这个像素小世界，愿你的每一天都充满阳光！✨"
-        ];
-        activeDialog = letters[Math.floor(Math.random() * letters.length)];
-        return;
-    }
-
-    // 6. 许愿喷泉投币
-    if (frontX === 30 && frontY === 30 || (Math.abs(player.gridX-30)<=1 && Math.abs(player.gridY-30)<=1)) {
+    // 5. 街头爱心邮箱 / 许愿喷泉 (合并在30,30区域)
+    if ((frontX === 30 && frontY === 30) || (Math.abs(player.gridX - 30) <= 1 && Math.abs(player.gridY - 30) <= 1)) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
             player.inventory.splice(coinIdx, 1);
@@ -238,11 +264,12 @@ function checkInteractions() {
             const fortunes = [
                 "✨ 大吉！今天老板绝对不会转到你身后，安心摸鱼吧！",
                 "✨ 中吉！今天适合在工位上偷偷喝一杯双倍糖的冰奶茶！",
-                "✨ 小吉！你的代码和工作今天都会极度顺畅，一次就过！",
-                "✨ 暖心！今天下班的路上，你可能会遇到一只主动蹭你的小猫。🐱"
+                "✨ 小吉！你的工作今天都会极度顺畅，无Bug一身轻！",
+                "✨ 惊喜！今天下班的路上，你可能会遇到一只主动蹭你的小动物。🐱"
             ];
-            activeDialog = fortunes[Math.floor(Math.random() * fortunes.length)];
-            // 喷泉溅水花特效
+            createDialogDOM("⛲ 许愿喷泉运势", fortunes[Math.floor(Math.random() * fortunes.length)]);
+            
+            // 喷泉溅起绿色/蓝色治愈水花特效
             for(let i=0; i<15; i++) {
                 particles.push({
                     x: 30 * TILE_SIZE + 16 + (Math.random()*20-10),
@@ -254,41 +281,41 @@ function checkInteractions() {
                 });
             }
         } else {
-            activeDialog = "波光粼粼的像素许愿喷泉。向里面投掷一枚 [硬币] 可以测一测今天的摸鱼运势哦。";
+            createDialogDOM("⛲ 许愿喷泉与邮箱", "波光粼粼的像素喷泉和红色爱心邮箱。向里面投掷一枚 [硬币] (按E)，可以测一测今天的摸鱼运势并抽取小动物的信件哦。");
         }
         return;
     }
 
-    // 7. 流浪猫投喂
+    // 6. 流浪猫投喂
     if (frontX === worldObjects.cat.gridX && frontY === worldObjects.cat.gridY && !worldObjects.cat.isFollowing) {
         const fishIdx = player.inventory.findIndex(i => i.type === 'fish');
         if (fishIdx !== -1) {
             player.inventory.splice(fishIdx, 1);
             updateInventoryUI();
             worldObjects.cat.isFollowing = true;
-            activeDialog = "🐱 咪呜~❤ 小猫高兴地吃下了小鱼干，轻轻蹭了蹭你，决定以后都跟着你走啦！";
+            createDialogDOM("🐱 流浪小猫咪", "咪呜~❤ 小猫高兴地吃下了小鱼干，轻轻蹭了蹭你，决定以后都跟着你走啦！(它现在会黏在你的屁股后面跟随你)");
         } else {
-            activeDialog = "喵呜... 瘦弱的流浪猫怯生生地看着你，它好像很想吃美味的 [小鱼干] 。";
+            createDialogDOM("🐱 流浪小猫咪", "喵呜... 瘦弱的流浪猫怯生生地看着你，它好像很饥饿。如果能从马路上捡到 [小鱼干] 喂它就好了。");
         }
         return;
     }
 }
 
-// 检查可拾取物品与踩水坑
+// 踩格子触发器（物品自动捡拾、踩水坑粒子）
 function checkStepTriggers() {
     // 物品自动拾取
     const itemIdx = mapItems.findIndex(i => i.gridX === player.gridX && i.gridY === player.gridY);
     if (itemIdx !== -1) {
         const item = mapItems[itemIdx];
-        player.inventory.push({ type: item.type, name: item.name });
+        addItemToInventory(item.type, item.name, item.emoji);
         mapItems.splice(itemIdx, 1);
-        updateInventoryUI();
+        spawnFloatingBubble(`+1 ${item.name}`);
     }
 
     // 踩水坑粒子动效触发
     const inPuddle = puddles.some(p => p.gridX === player.gridX && p.gridY === player.gridY);
     if (inPuddle) {
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 8; i++) {
             particles.push({
                 x: player.pixelX + 16,
                 y: player.pixelY + 28,
@@ -303,44 +330,49 @@ function checkStepTriggers() {
     // 长椅挂机检测
     if (player.gridX === worldObjects.chair.gridX && player.gridY === worldObjects.chair.gridY) {
         player.isSitting = true;
+        createDialogDOM("🛋️ 挂机长椅", "你坐在了长椅上。整个人都放松了下来... 头顶开始冒出治愈气泡。(按任意方向键可起立离开)");
     }
 }
 
-// 更新物品栏 UI 渲染
-function updateInventoryUI() {
-    const slots = document.getElementById('inventorySlots');
-    slots.innerHTML = '';
-    // 固定的 6 个展示格子格子
-    for (let i = 0; i < 6; i++) {
-        const slotEl = document.createElement('div');
-        slotEl.className = 'inventory-slot';
-        slotEl.style.width = '50px';
-        slotEl.style.height = '50px';
-        slotEl.style.border = '2px solid #2c2c2c';
-        slotEl.style.backgroundColor = '#f5f6fa';
-        slotEl.style.display = 'flex';
-        slotEl.style.justifyContent = 'center';
-        slotEl.style.alignItems = 'center';
-        slotEl.style.fontSize = '20px';
-        slotEl.style.borderRadius = '4px';
-
-        if (player.inventory[i]) {
-            // 解析前置 Emoji 用于显示
-            slotEl.innerText = player.inventory[i].name.split(' ')[0];
-            slotEl.title = player.inventory[i].name;
-        }
-        slots.appendChild(slotEl);
+// 辅助函数：合并添加物品并更新数组
+function addItemToInventory(type, name, emoji) {
+    const existItem = player.inventory.find(i => i.type === type);
+    if (existItem) {
+        existItem.count++;
+    } else {
+        player.inventory.push({ type: type, name: name, emoji: emoji, count: 1 });
     }
-    document.getElementById('stats').innerText = `收集物品: ${player.inventory.length}`;
+    updateInventoryUI();
+}
+
+// 更新物品栏 UI 渲染 (完美对接你的 .inventory-slots 和 .inventory-item)
+function updateInventoryUI() {
+    const slotsContainer = document.getElementById('inventorySlots');
+    slotsContainer.innerHTML = '';
+    
+    player.inventory.forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'inventory-item';
+        itemEl.innerHTML = `
+            <span class="inventory-item-emoji">${item.emoji}</span>
+            <span>${item.name}</span>
+            <span class="inventory-item-count">${item.count}</span>
+        `;
+        slotsContainer.appendChild(itemEl);
+    });
+
+    // 计算总收集数呈现给 #stats 容器
+    const totalCount = player.inventory.reduce((sum, item) => sum + item.count, 0);
+    document.getElementById('stats').innerText = `收集总数: ${totalCount}`;
 }
 
 // ==========================================
-// 6. 核心渲染与状态更新循环 (Game Loop)
+// 6. 核心帧更新与 Canvas 像素画渲染
 // ==========================================
 function update() {
     if (isPaused || isBossMode) return;
 
-    // 平滑插值计算玩家角色的移动（平滑走格子过渡动画）
+    // 平滑插值走格子过渡动画
     if (player.isMoving) {
         if (player.pixelX < player.targetPixelX) player.pixelX = Math.min(player.pixelX + player.moveSpeed, player.targetPixelX);
         else if (player.pixelX > player.targetPixelX) player.pixelX = Math.max(player.pixelX - player.moveSpeed, player.targetPixelX);
@@ -348,9 +380,9 @@ function update() {
         if (player.pixelY < player.targetPixelY) player.pixelY = Math.min(player.pixelY + player.moveSpeed, player.targetPixelY);
         else if (player.pixelY > player.targetPixelY) player.pixelY = Math.max(player.pixelY - player.moveSpeed, player.targetPixelY);
 
-        // 到达网格目标点，释放锁状态
+        // 到达目标点，解除输入锁定
         if (player.pixelX === player.targetPixelX && player.pixelY === player.targetPixelY) {
-            // 猫咪队列历史记录更新
+            // 猫咪队伍坐标压栈更新
             if (worldObjects.cat.isFollowing) {
                 worldObjects.cat.history.push({ x: player.gridX, y: player.gridY });
                 if (worldObjects.cat.history.length > 1) {
@@ -359,18 +391,17 @@ function update() {
                     worldObjects.cat.gridY = trail.y;
                 }
             }
-
             player.isMoving = false;
-            checkStepTriggers(); // 触发踩格子事件
+            checkStepTriggers();
         }
     }
 
-    // 电视机自动化邻近距离开关检测逻辑
+    // 电视机雷达感应距离计算
     const distToTV = Math.sqrt(Math.pow(player.gridX - worldObjects.tv.gridX, 2) + Math.pow(player.gridY - worldObjects.tv.gridY, 2));
     worldObjects.tv.isOn = distToTV <= 2.5;
     if (worldObjects.tv.isOn) worldObjects.tv.animFrame++;
 
-    // 八音盒音符粒子发射器
+    // 八音盒粒子发射器
     if (worldObjects.musicBox.isOn && Math.random() < 0.08) {
         particles.push({
             x: worldObjects.musicBox.gridX * TILE_SIZE + 16,
@@ -383,16 +414,16 @@ function update() {
         });
     }
 
-    // 长椅挂机治愈气泡定时器循环
+    // 长椅挂机随机冒爱心/睡眠标志
     if (player.isSitting) {
         player.sitTimer++;
-        if (player.sitTimer % 120 === 0 && Math.random() < 0.6) {
-            const bubbles = ['❤️', '💤', '🎵', '☁️'];
-            activeDialog = "💤 挂机治愈中... 头顶冒出气泡 " + bubbles[Math.floor(Math.random() * bubbles.length)] + " (按任意方向键起身)";
+        if (player.sitTimer % 90 === 0) {
+            const symbols = ['❤️', '💤', '🎵', '☁️'];
+            spawnFloatingBubble(symbols[Math.floor(Math.random() * symbols.length)]);
         }
     }
 
-    // 更新粒子状态寿命
+    // 粒子寿命衰减
     particles.forEach((p, idx) => {
         p.x += p.vx;
         p.y += p.vy;
@@ -404,79 +435,71 @@ function update() {
 function draw() {
     ctx.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
-    // 摄像机镜头裁剪跟随计算 (Camera Bounds Control)
+    // 摄像机镜头裁剪裁剪计算
     let camX = player.pixelX - VIEW_WIDTH / 2 + TILE_SIZE / 2;
     let camY = player.pixelY - VIEW_HEIGHT / 2 + TILE_SIZE / 2;
 
-    // 锁死镜头不穿过 100*100 的总地图边缘
     camX = Math.max(0, Math.min(camX, MAP_GRID * TILE_SIZE - VIEW_WIDTH));
     camY = Math.max(0, Math.min(camY, MAP_GRID * TILE_SIZE - VIEW_HEIGHT));
 
-    // 计算当前可见视口的网格索引区间（极大提升渲染性能）
     const startX = Math.floor(camX / TILE_SIZE);
     const endX = Math.min(startX + Math.ceil(VIEW_WIDTH / TILE_SIZE) + 1, MAP_GRID);
     const startY = Math.floor(camY / TILE_SIZE);
     const endY = Math.min(startY + Math.ceil(VIEW_HEIGHT / TILE_SIZE) + 1, MAP_GRID);
 
-    // 1. 绘制像素地图格子
+    // 1. 绘制像素背景草地和街道
     for (let y = startY; y < endY; y++) {
         for (let x = startX; x < endX; x++) {
             const screenX = x * TILE_SIZE - camX;
             const screenY = y * TILE_SIZE - camY;
 
             if (gameMap[y][x] === 1) {
-                ctx.fillStyle = '#9bbc0f'; // 复古浅绿草地像素
+                ctx.fillStyle = '#9bbc0f'; // 浅绿复古像素草地
             } else {
-                ctx.fillStyle = '#8b956d'; // 像素灰街道道路
+                ctx.fillStyle = '#8b956d'; // 像素灰城市主干道
             }
             ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
 
-            // 绘制像素格子的细微网格边界线体现复古游戏质感
             ctx.strokeStyle = 'rgba(0,0,0,0.03)';
             ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
         }
     }
 
-    // 2. 绘制路面上的水坑
+    // 2. 绘制反光水坑
     puddles.forEach(p => {
         const sx = p.gridX * TILE_SIZE - camX;
         const sy = p.gridY * TILE_SIZE - camY;
-        ctx.fillStyle = '#4a69bd'; // 具有反光感的蓝色像素水坑
+        ctx.fillStyle = '#4a69bd';
         ctx.fillRect(sx + 4, sy + 8, TILE_SIZE - 8, TILE_SIZE - 12);
-        ctx.fillStyle = '#6a89cc'; // 水坑的高亮反光边边
+        ctx.fillStyle = '#6a89cc';
         ctx.fillRect(sx + 6, sy + 10, 6, 2);
     });
 
-    // 3. 绘制静态功能建筑/互动目标点
-    // 售货机
-    drawPixelSprite(15, 12, camX, camY, '#e74c3c', '🥤');
-    // NPC 小姐姐
-    drawPixelSprite(8, 15, camX, camY, '#fd79a8', '👧');
-    // 夹娃娃机
-    drawPixelSprite(25, 10, camX, camY, '#9b59b6', '🧸');
-    // 八音盒
-    drawPixelSprite(worldObjects.musicBox.gridX, worldObjects.musicBox.gridY, camX, camY, '#e67e22', '🎵');
-    // 邮箱
-    drawPixelSprite(30, 30, camX, camY, '#d63031', '✉️');
+    // 3. 绘制带有 Emoji 标签的静态互动点建筑
+    drawPixelSprite(15, 12, camX, camY, '#e74c3c', '🥤'); // 售货机
+    drawPixelSprite(8, 15, camX, camY, '#fd79a8', '👧');  // NPC
+    drawPixelSprite(25, 10, camX, camY, '#9b59b6', '🧸'); // 娃娃机
+    drawPixelSprite(worldObjects.musicBox.gridX, worldObjects.musicBox.gridY, camX, camY, '#e67e22', '🎵'); // 八音盒
+    drawPixelSprite(14, 8, camX, camY, '#d4a574', '🛋️');  // 长椅
+    drawPixelSprite(30, 30, camX, camY, '#d63031', '⛲'); // 喷泉/邮箱
 
-    // 绘制自动感应电视机 (带动态点亮检测渲染)
+    // 绘制自动感应黑白/彩色复古电视机
     const tvX = worldObjects.tv.gridX * TILE_SIZE - camX;
     const tvY = worldObjects.tv.gridY * TILE_SIZE - camY;
-    ctx.fillStyle = '#2c3e50'; // 电视外壳
+    ctx.fillStyle = '#2c3e50';
     ctx.fillRect(tvX, tvY, TILE_SIZE, TILE_SIZE);
     if (worldObjects.tv.isOn) {
-        // 电视点亮时呈现动态闪烁色彩
         ctx.fillStyle = (Math.floor(worldObjects.tv.animFrame / 15) % 2 === 0) ? '#1abc9c' : '#f1c40f';
         ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
         ctx.fillStyle = '#000';
         ctx.font = '10px sans-serif';
-        ctx.fillText('🐱', tvX + 10, tvY + 16);
+        ctx.fillText('🐱', tvX + 11, tvY + 16);
     } else {
-        ctx.fillStyle = '#111'; // 黑屏关机
+        ctx.fillStyle = '#111';
         ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
     }
 
-    // 4. 绘制地图上掉落的地面物品
+    // 4. 绘制路面掉落物
     mapItems.forEach(item => {
         const ix = item.gridX * TILE_SIZE - camX;
         const iy = item.gridY * TILE_SIZE - camY;
@@ -486,39 +509,33 @@ function draw() {
         ctx.fill();
         ctx.fillStyle = '#fff';
         ctx.font = '10px sans-serif';
-        ctx.fillText(item.type === 'coin' ? 'C' : 'F', ix + 12, iy + 20);
+        ctx.fillText(item.type === 'coin' ? 'C' : 'F', ix + 13, iy + 20);
     });
 
-    // 5. 绘制流浪小猫咪 (喂食后会像个尾巴一样粘着玩家)
+    // 5. 绘制流浪猫
     const catX = worldObjects.cat.gridX * TILE_SIZE - camX;
     const catY = worldObjects.cat.gridY * TILE_SIZE - camY;
     ctx.fillStyle = '#f39c12';
-    ctx.fillRect(catX + 6, catY + 10, 20, 16); // 猫身体
+    ctx.fillRect(catX + 6, catY + 12, 20, 14);
     ctx.fillStyle = '#d35400';
-    ctx.fillRect(catX + 20, catY + 4, 6, 6);   // 猫头
-    if (worldObjects.cat.isFollowing) {
-        ctx.fillStyle = '#e74c3c';
-        ctx.font = '10px sans-serif';
-        ctx.fillText('❤️', catX + 10, catY + 2); // 冒爱心
-    }
+    ctx.fillRect(catX + 18, catY + 6, 6, 6);
 
-    // 6. 绘制玩家小女孩主体像素形象
+    // 6. 绘制玩家小女孩
     const px = player.pixelX - camX;
     const py = player.pixelY - camY;
-    ctx.fillStyle = '#ff7675'; // 裙子基础色
+    ctx.fillStyle = '#ff7675'; // 裙装
     ctx.fillRect(px + 4, py + 8, 24, 22);
-    ctx.fillStyle = '#ffeaa7'; // 皮肤色面部像素
+    ctx.fillStyle = '#ffeaa7'; // 皮肤
     ctx.fillRect(px + 8, py + 2, 16, 10);
-    // 根据上下左右的朝向绘制眼睛像素点体现生动的朝向细节
-    ctx.fillStyle = '#2d3436';
+    ctx.fillStyle = '#2d3436'; // 像素眼睛朝向控制
     if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 10, py + 5, 2, 3);
     if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 5, 2, 3);
     if (player.direction === 'up') {
-        ctx.fillStyle = '#d63031'; // 背面露出可爱的小红发带
+        ctx.fillStyle = '#d63031';
         ctx.fillRect(px + 12, py + 1, 8, 2);
     }
 
-    // 7. 渲染飞散的粒子特效组件
+    // 7. 渲染粒子碎片组件
     particles.forEach(p => {
         const psx = p.x - camX;
         const psy = p.y - camY;
@@ -527,25 +544,11 @@ function draw() {
             ctx.font = '12px sans-serif';
             ctx.fillText('🎵', psx, psy);
         } else {
-            ctx.fillRect(psx, psy, 4, 4); // 标准正方形像素碎片颗粒
+            ctx.fillRect(psx, psy, 4, 4);
         }
     });
-
-    // 8. 游戏内的通用全局像素对话文本框UI叠加
-    if (activeDialog) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
-        ctx.fillRect(40, VIEW_HEIGHT - 100, VIEW_WIDTH - 80, 80);
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(42, VIEW_HEIGHT - 98, VIEW_WIDTH - 84, 76);
-
-        ctx.fillStyle = '#fff';
-        ctx.font = '14px sans-serif';
-        ctx.fillText(activeDialog, 60, VIEW_HEIGHT - 55);
-    }
 }
 
-// 绘制带有 Emoji 小标签的模块化像素建筑方法
 function drawPixelSprite(gx, gy, camX, camY, color, emoji) {
     const sx = gx * TILE_SIZE - camX;
     const sy = gy * TILE_SIZE - camY;
@@ -557,7 +560,6 @@ function drawPixelSprite(gx, gy, camX, camY, color, emoji) {
     ctx.fillText(emoji, sx + 8, sy + 22);
 }
 
-// 主时间轮询轴机制驱动
 function loop() {
     update();
     draw();
@@ -565,43 +567,48 @@ function loop() {
 }
 
 // ==========================================
-// 7. 老板键功能与交互面板 UI 操作绑定
+// 7. 老板键功能与 暂停窗口监听 (完美适配 CSS .active 声明)
 // ==========================================
 function toggleBossMode() {
     isBossMode = !isBossMode;
     const gameContainer = document.getElementById('gameContainer');
     const bossScreen = document.getElementById('bossKeyScreen');
+    const pauseDialog = document.getElementById('pauseDialog');
 
     if (isBossMode) {
         gameContainer.style.display = 'none';
-        bossScreen.style.display = 'block';
-        // 动态同步更新隐藏报表上的当前电脑时间
+        // 契合你的 CSS：使用 .addClass 或直接添加类名控制激活
+        bossScreen.classList.add('active');
+        removeDialogDOM(); // 隐匿所有可能暴露的对话窗
+        
         const now = new Date();
         document.getElementById('bossKeyTime').innerText = now.toLocaleString();
     } else {
-        bossScreen.style.display = 'none';
+        bossScreen.classList.remove('active');
         gameContainer.style.display = 'flex';
-        // 弹出安全重回暂停机制
+        
         isPaused = true;
-        document.getElementById('pauseDialog').style.display = 'flex';
+        pauseDialog.classList.add('active'); // 完美唤醒你的暂停美化弹窗
     }
 }
 
-// 绑定 HTML 的暂停窗口按钮事件响应
 document.getElementById('resumeBtn').addEventListener('click', () => {
     isPaused = false;
-    document.getElementById('pauseDialog').style.display = 'none';
+    document.getElementById('pauseDialog').classList.remove('active');
 });
 
 document.getElementById('hideBtn').addEventListener('click', () => {
-    document.getElementById('pauseDialog').style.display = 'none';
+    document.getElementById('pauseDialog').classList.remove('active');
     toggleBossMode();
 });
 
 // ==========================================
-// 8. 跑起来！游戏开机启动引导
+// 8. 游戏开机启动引导
 // ==========================================
 updateInventoryUI();
-// 初始化将部分动态事件提示语写入首帧让玩家一目了然
-activeDialog = "欢迎来到像素城市街区！使用 W/A/S/D 移动，遇到建筑前方按 E 键展开有爱交互吧~";
 loop();
+
+// 首帧载入弹窗提示
+setTimeout(() => {
+    createDialogDOM("🎮 游戏提示", "欢迎来到像素摸鱼城！用方向键或WASD移动（按一下走一格）。走到特定建筑面前【按 E 键】即可展开神奇的暖心互动哦！");
+}, 200);
