@@ -1,5 +1,5 @@
 // ==========================================
-// 1. 游戏基础配置与初始化
+// 1. 游戏基础配置与初始化（地图已改为 50 * 50）
 // ==========================================
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -7,7 +7,7 @@ const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
 
 const TILE_SIZE = 32;       
-const MAP_GRID = 100;       
+const MAP_GRID = 50;        // 地图尺寸正式修改为 50 * 50
 const VIEW_WIDTH = 800;     
 const VIEW_HEIGHT = 600;    
 
@@ -23,7 +23,7 @@ const player = {
     pixelY: 10 * TILE_SIZE,
     targetPixelX: 10 * TILE_SIZE,
     targetPixelY: 10 * TILE_SIZE,
-    moveSpeed: 4,          // 移动速度（4是32的约数，确保完美对齐网格）
+    moveSpeed: 4,          // 移动速度
     isMoving: false,       
     direction: 'down',     
     inventory: [],          
@@ -31,18 +31,16 @@ const player = {
     sitTimer: 0
 };
 
-// 各种特效粒子容器
 let particles = [];
 
-// 【升级①的核心】：引入键盘按键状态追踪字典，用于支持长按流畅平滑移动
+// 【核心修复】：按键状态字典
 const keysPressed = {};
 
 // ==========================================
-// 2. 存档与地图周期刷新系统 (升级③)
+// 2. 存档与地图周期刷新系统 (2小时刷新)
 // ==========================================
-const MAP_REFRESH_INTERVAL = 2 * 60 * 60 * 1000; // 2小时的毫秒数
+const MAP_REFRESH_INTERVAL = 2 * 60 * 60 * 1000; 
 
-// 初始化或读取本地全局数据
 let gameState = {
     lastRefreshTime: Date.now(),
     gameMap: [],
@@ -52,7 +50,6 @@ let gameState = {
         musicBox: { gridX: 12, gridY: 5, isOn: false }, 
         chair: { gridX: 14, gridY: 8 },
         cat: { gridX: 17, gridY: 14, isFollowing: false, history: [] },
-        // 升级②：新增5大交互场景的数据挂载点
         fountain: { gridX: 30, gridY: 30 },
         bench: { gridX: 11, gridY: 18, isCleaned: false },
         telephone: { gridX: 22, gridY: 7, callCount: 0 },
@@ -63,11 +60,10 @@ let gameState = {
     }
 };
 
-// 基础碰撞格子定义
 function isSolid(x, y) {
     const objs = gameState.worldObjects;
     if (x === objs.vendingMachine.gridX && y === objs.vendingMachine.gridY) return true; 
-    if (x === 8 && y === 15) return true;  // NPC小姐姐
+    if (x === 8 && y === 15) return true;  
     if (x === objs.clawMachine.gridX && y === objs.clawMachine.gridY) return true; 
     if (x === objs.tv.gridX && y === objs.tv.gridY) return true; 
     if (x === objs.chair.gridX && y === objs.chair.gridY) return true; 
@@ -79,7 +75,7 @@ function isSolid(x, y) {
     return false;
 }
 
-// 动态生成空地上的随机掉落物
+// 缩减地图后，道具数量从60缩减到合理密度的30个，更容易捡到！
 function generateRandomItems() {
     const items = [];
     const pool = [
@@ -89,8 +85,7 @@ function generateRandomItems() {
         { type: 'flower', name: '小雏菊', emoji: '🌼', color: '#e67e22' }
     ];
     
-    // 在全图随机撒大约60个道具
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 30; i++) {
         let rx = Math.floor(Math.random() * MAP_GRID);
         let ry = Math.floor(Math.random() * MAP_GRID);
         if (!isSolid(rx, ry) && (rx !== 10 || ry !== 10)) {
@@ -106,16 +101,18 @@ function generateRandomItems() {
     return items;
 }
 
-// 核心：加载保存的进度，并智能判断2小时刷新
 function loadOrCreateGame() {
     const savedData = localStorage.getItem('pixel_moyu_save');
     if (savedData) {
         try {
             const parsed = JSON.parse(savedData);
             gameState = parsed.gameState;
-            // 恢复玩家坐标与背包
             player.gridX = parsed.player.gridX;
             player.gridY = parsed.player.gridY;
+            // 防止缩减地图后旧存档坐标越界
+            if(player.gridX >= MAP_GRID) player.gridX = 10;
+            if(player.gridY >= MAP_GRID) player.gridY = 10;
+
             player.pixelX = player.gridX * TILE_SIZE;
             player.pixelY = player.gridY * TILE_SIZE;
             player.targetPixelX = player.pixelX;
@@ -123,14 +120,12 @@ function loadOrCreateGame() {
             player.inventory = parsed.player.inventory;
             player.direction = parsed.player.direction;
         } catch(e) {
-            console.error("读取存档失败，重新初始化", e);
             initNewUniverse();
         }
     } else {
         initNewUniverse();
     }
 
-    // 判断时间是否超过2小时，如果是，则重置地图与掉落物
     if (Date.now() - gameState.lastRefreshTime > MAP_REFRESH_INTERVAL) {
         refreshWorldElements();
     }
@@ -138,7 +133,6 @@ function loadOrCreateGame() {
 
 function initNewUniverse() {
     gameState.lastRefreshTime = Date.now();
-    // 随机草地
     gameState.gameMap = [];
     for (let y = 0; y < MAP_GRID; y++) {
         gameState.gameMap[y] = [];
@@ -152,12 +146,11 @@ function initNewUniverse() {
 function refreshWorldElements() {
     gameState.lastRefreshTime = Date.now();
     gameState.mapItems = generateRandomItems();
-    // 重置部分交互点状态，让世界刷新
     gameState.worldObjects.bench.isCleaned = false;
     gameState.worldObjects.mailbox.hasLetter = Math.random() < 0.7;
     gameState.worldObjects.guitarist.isTipped = false;
     saveGame();
-    spawnFloatingBubble("✨ 奇妙摸鱼城已刷新！新道具出现了！");
+    spawnFloatingBubble("✨ 奇妙摸鱼城已刷新！");
 }
 
 function saveGame() {
@@ -174,12 +167,16 @@ function saveGame() {
 }
 
 // ==========================================
-// 3. 升级①：长按支持与单格行进平滑切换机制
+// 3. 【彻底重写】高频动态移动监听引擎
 // ==========================================
 window.addEventListener('keydown', (e) => {
     if (isBossMode) return;
     const key = e.key.toLowerCase();
-    keysPressed[key] = true; // 记录按键按下状态
+    
+    // 允许记录所有的方向键
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        keysPressed[key] = true;
+    }
 
     if (e.key === 'Escape') {
         e.preventDefault();
@@ -188,10 +185,10 @@ window.addEventListener('keydown', (e) => {
     }
 
     if (isPaused || player.isSitting || activeDialog) {
-        if (activeDialog && (key === 'e' || ['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'].includes(key))) {
+        if (activeDialog && (key === 'e' || keysPressed[key])) {
             removeDialogDOM();
         }
-        if (player.isSitting && ['arrowup','arrowdown','arrowleft','arrowright','w','a','s','d'].includes(key)) {
+        if (player.isSitting && ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(key)) {
             player.isSitting = false;
             let escapeY = player.gridY + 1;
             if (escapeY < MAP_GRID && !isSolid(player.gridX, escapeY)) {
@@ -211,11 +208,18 @@ window.addEventListener('keydown', (e) => {
 
 window.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
-    keysPressed[key] = false; // 清除按键状态
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        keysPressed[key] = false;
+    }
 });
 
-// 在游戏主循环的 update 阶段，如果玩家当前静止，则即时侦测按键状态实现连续平滑移动
-function handleContinuousMovement() {
+// 当页面失去焦点时，清空按键字典，防止角色无限自动乱跑
+window.addEventListener('blur', () => {
+    for (let key in keysPressed) keysPressed[key] = false;
+});
+
+// 核心状态机：高频检查长按行为
+function checkContinuousInput() {
     if (player.isMoving || isPaused || player.isSitting || activeDialog || isBossMode) return;
 
     let nextGridX = player.gridX;
@@ -223,6 +227,7 @@ function handleContinuousMovement() {
     let newDir = player.direction;
     let wantsToMove = false;
 
+    // 同时兼容 WASD 和 方向键
     if (keysPressed['w'] || keysPressed['arrowup']) { nextGridY--; newDir = 'up'; wantsToMove = true; }
     else if (keysPressed['s'] || keysPressed['arrowdown']) { nextGridY++; newDir = 'down'; wantsToMove = true; }
     else if (keysPressed['a'] || keysPressed['arrowleft']) { nextGridX--; newDir = 'left'; wantsToMove = true; }
@@ -232,6 +237,7 @@ function handleContinuousMovement() {
 
     player.direction = newDir;
 
+    // 边界与碰撞检测
     if (nextGridX >= 0 && nextGridX < MAP_GRID && nextGridY >= 0 && nextGridY < MAP_GRID) {
         if (!isSolid(nextGridX, nextGridY)) {
             player.gridX = nextGridX;
@@ -243,13 +249,12 @@ function handleContinuousMovement() {
     }
 }
 
-// 固定的水坑配置
 const puddles = [
     { gridX: 11, gridY: 10 }, { gridX: 14, gridY: 15 }, { gridX: 22, gridY: 25 }, { gridX: 6, gridY: 24 }
 ];
 
 // ==========================================
-// 4. 精美 DOM 对话框与漂浮气泡
+// 4. 精美 DOM 对话框与悬浮气泡
 // ==========================================
 function createDialogDOM(title, content) {
     removeDialogDOM(); 
@@ -278,7 +283,6 @@ function spawnFloatingBubble(text) {
     bubble.className = 'floating-bubble';
     bubble.innerText = text;
     
-    // 基于屏幕中心 Canvas 视口生成
     bubble.style.left = `${canvas.offsetLeft + VIEW_WIDTH / 2 - 10}px`;
     bubble.style.top = `${canvas.offsetTop + VIEW_HEIGHT / 2 - 40}px`;
     bubble.style.color = '#764ba2';
@@ -288,7 +292,7 @@ function spawnFloatingBubble(text) {
 }
 
 // ==========================================
-// 5. 升级②：全新5大硬核暖心交互场景及投喂流浪猫
+// 5. 交互判定逻辑
 // ==========================================
 function checkInteractions() {
     let frontX = player.gridX;
@@ -300,7 +304,6 @@ function checkInteractions() {
 
     const objs = gameState.worldObjects;
 
-    // ——【核心投喂】：喂流浪猫 ——
     if (frontX === objs.cat.gridX && frontY === objs.cat.gridY && !objs.cat.isFollowing) {
         const fishIdx = player.inventory.findIndex(i => i.type === 'fish');
         if (fishIdx !== -1) {
@@ -308,14 +311,13 @@ function checkInteractions() {
             objs.cat.isFollowing = true;
             updateInventoryUI();
             saveGame();
-            createDialogDOM("🐱 流浪小猫咪", "咪呜~❤ 小猫香甜地吃下了小鱼干，在你脚边快乐地打滚！它现在成了你的小尾巴，会一直跟着你走啦！");
+            createDialogDOM("🐱 流浪小猫咪", "咪呜~❤ 小猫香甜地吃下了小鱼干！它现在会一直跟着你走啦！");
         } else {
-            createDialogDOM("🐱 流浪小猫咪", "喵呜... 瘦弱的流浪猫怯生生地看着你，它的肚子正咕咕叫。如果能从马路上捡到 [🐟 小鱼干] 喂它就好了。");
+            createDialogDOM("🐱 流浪小猫咪", "喵呜... 肚子正咕咕叫。如果能从马路上捡到 [🐟 小鱼干] 喂它就好了。");
         }
         return;
     }
 
-    // —— 场景1：荒废的长椅（清洁环境互动） ——
     if (frontX === objs.bench.gridX && frontY === objs.bench.gridY) {
         if (!objs.bench.isCleaned) {
             const trashIdx = player.inventory.findIndex(i => i.type === 'trash');
@@ -324,31 +326,29 @@ function checkInteractions() {
                 objs.bench.isCleaned = true;
                 updateInventoryUI();
                 saveGame();
-                createDialogDOM("🧹 脏污的长椅", "你用捡到的【🗑️ 废纸团】顺手把长椅上的积灰和污渍擦拭得一尘不染！环境变美了，你获得了内心的平静。");
+                createDialogDOM("🧹 脏污的长椅", "你用捡到的【🗑️ 废纸团】顺手把长椅擦拭得一尘不染！");
             } else {
-                createDialogDOM("🧹 脏污的长椅", "这把公共长椅上落满了灰尘，还有人扔了垃圾。如果你背包里有路边捡到的 [🗑️ 废纸团]，可以顺手把它打扫干净哦。");
+                createDialogDOM("🧹 脏污的长椅", "这把公共长椅上落满了灰尘。如果你背包里有路边捡到的 [🗑️ 废纸团]，可以顺手打扫干净。");
             }
         } else {
-            createDialogDOM("🛋️ 干净的长椅", "长椅现在亮丽如新，路过的小市民都对你投来赞许的目光！");
+            createDialogDOM("🛋️ 干净的长椅", "长椅现在亮丽如新！");
         }
         return;
     }
 
-    // —— 场景2：复古英伦红电话亭（隐藏彩蛋八卦） ——
     if (frontX === objs.telephone.gridX && frontY === objs.telephone.gridY) {
         objs.telephone.callCount++;
         saveGame();
         const callStories = [
-            "喂？是外卖吗？不，这里是像素摸鱼局......（电话被啪地挂断了）",
+            "喂？是外卖吗？不，这里是像素摸鱼局......",
             "接通了！里面传出了神秘的电台音乐，竟然有一丝治愈的白噪音。",
-            "你拨通了一个未知号码，对面传来悄悄话：'听说了吗？往路边的喷泉里投硬币，真的能测出今天的下班运势！'",
-            "电话里传来一个严肃的声音：'别摸鱼了，老板正在提刀赶来的路上！' 吓得你倒吸一口凉气。"
+            "你拨通了一个未知号码：'听说了吗？往路边的喷泉里投硬币，真的能测运势！'",
+            "电话里传来一个声音：'别摸鱼了，老板正在提刀赶来的路上！'"
         ];
         createDialogDOM("☎️ 复古电话亭", callStories[objs.telephone.callCount % callStories.length]);
         return;
     }
 
-    // —— 场景3：像素流浪吉他手（音效与打赏机制） ——
     if (frontX === objs.guitarist.gridX && frontY === objs.guitarist.gridY) {
         if (!objs.guitarist.isTipped) {
             const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
@@ -357,8 +357,7 @@ function checkInteractions() {
                 objs.guitarist.isTipped = true;
                 updateInventoryUI();
                 saveGame();
-                createDialogDOM("🎸 流浪歌手", "你往吉他箱里投掷了一枚【🪙 硬币】。歌手对你微微致意，指尖流转，为你弹奏了一首轻快激昂的像素狂想曲！");
-                // 激活动态音符粒子流
+                createDialogDOM("🎸 流浪歌手", "你投掷了一枚【🪙 硬币】。歌手为你弹奏了一首轻快激昂的像素狂想曲！");
                 for (let i = 0; i < 12; i++) {
                     particles.push({
                         x: objs.guitarist.gridX * TILE_SIZE + 16,
@@ -371,25 +370,24 @@ function checkInteractions() {
                     });
                 }
             } else {
-                createDialogDOM("🎸 流浪歌手", "一个身背旧吉他的像素小哥正在低吟浅唱。如果你有一枚 [🪙 硬币] 打赏给他的话，他会为你倾情弹奏独家曲目。");
+                createDialogDOM("🎸 流浪歌手", "一个身背旧吉他的像素小哥。如果你有一枚 [🪙 硬币] 打赏，他会为你倾情弹奏。");
             }
         } else {
-            createDialogDOM("🎸 流浪歌手", "“感谢你的慷慨，知音！祝你今天摸鱼愉快，无Bug一身轻！”");
+            createDialogDOM("🎸 流浪歌手", "“感谢你的慷慨，知音！祝你今天摸鱼愉快！”");
         }
         return;
     }
 
-    // —— 场景4：深夜爱心邮箱（寄信与情感树洞） ——
     if (frontX === objs.mailbox.gridX && frontY === objs.mailbox.gridY) {
         if (objs.mailbox.hasLetter) {
             objs.mailbox.hasLetter = false;
             saveGame();
             const letters = [
-                "💌 里面有一张明信片：'世界很大，不管今天工作多累，记得按时吃饭，照顾好自己。'",
-                "💌 里面有一封匿名小纸条：'我今天向喜欢的女孩子表白成功啦！把好运分享给抽到这封信的你！'",
-                "💌 里面写着：'打工人，打工魂！摸鱼的时候记得多喝水，起来扭扭腰。'"
+                "💌 明信片：'世界很大，不管今天工作多累，记得按时吃饭。'",
+                "💌 匿名纸条：'我今天表白成功啦！把好运分享给抽到这封信的你！'",
+                "💌 小纸条：'打工人，打工魂！摸鱼的时候记得多喝水。'"
             ];
-            createDialogDOM("📬 治愈邮箱", `你伸手从邮箱里掏出了一封未读来信：<br><br><strong>${letters[Math.floor(Math.random() * letters.length)]}</strong>`);
+            createDialogDOM("📬 治愈邮箱", `你掏出了一封未读来信：<br><br><strong>${letters[Math.floor(Math.random() * letters.length)]}</strong>`);
         } else {
             const flowerIdx = player.inventory.findIndex(i => i.type === 'flower');
             if (flowerIdx !== -1) {
@@ -397,15 +395,14 @@ function checkInteractions() {
                 objs.mailbox.hasLetter = true;
                 updateInventoryUI();
                 saveGame();
-                createDialogDOM("📬 治愈邮箱", "你将路边摘下的【🌼 小雏菊】放进了邮箱里。这样下一个路过这里的玩家，就能收获一份专属的植物香气和温柔啦！");
+                createDialogDOM("📬 治愈邮箱", "你将路边摘下的【🌼 小雏菊】放进了邮箱里，为陌生人留下温暖。");
             } else {
-                createDialogDOM("📬 治愈邮箱", "这里空空如也。如果你在路上采到了 [🌼 小雏菊]，可以将它作为礼物投进邮箱，为陌生人留下一份小温暖。");
+                createDialogDOM("📬 治愈邮箱", "这里空空如也。如果你在路上采到了 [🌼 小雏菊]，可以投进去。");
             }
         }
         return;
     }
 
-    // —— 场景5：幸运许愿大喷泉 ——
     if (frontX === objs.fountain.gridX && frontY === objs.fountain.gridY) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
@@ -430,12 +427,11 @@ function checkInteractions() {
                 });
             }
         } else {
-            createDialogDOM("⛲ 许愿喷泉", "波光粼粼的中央喷泉。朝里面扔一块 [🪙 硬币]（按E键），看一看今天的运势吧！");
+            createDialogDOM("⛲ 许愿喷泉", "朝里面扔一块 [🪙 硬币]，看一看今天的运势吧！");
         }
         return;
     }
 
-    // 原有自动售货机
     if (frontX === objs.vendingMachine.gridX && frontY === objs.vendingMachine.gridY) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
@@ -444,12 +440,11 @@ function checkInteractions() {
             saveGame();
             createDialogDOM("自动售货机", "咚咚咚，获得了一瓶【🥤 草莓汽水】！");
         } else {
-            createDialogDOM("自动售货机", "售货机里冰镇着甜爽的草莓汽水。需要一枚 [硬币] 才能购买。");
+            createDialogDOM("自动售货机", "售货机里冰镇着草莓汽水。需要一枚 [硬币] 才能购买。");
         }
         return;
     }
 
-    // 原有夹娃娃机
     if (frontX === objs.clawMachine.gridX && frontY === objs.clawMachine.gridY) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
@@ -472,11 +467,10 @@ function checkInteractions() {
     }
 
     if (frontX === 8 && frontY === 15) {
-        createDialogDOM("👧 路边的小姐姐", "偷偷在这里摸鱼，是只属于我们两个人的秘密哦，绝对不告诉老板！🤫");
+        createDialogDOM("👧 路边的小姐姐", "偷偷在这里摸鱼，是只属于我们两个人的秘密哦！🤫");
     }
 }
 
-// 踩格子自动触发
 function checkStepTriggers() {
     const items = gameState.mapItems;
     const itemIdx = items.findIndex(i => i.gridX === player.gridX && i.gridY === player.gridY);
@@ -546,8 +540,8 @@ function updateInventoryUI() {
 function update() {
     if (isPaused || isBossMode) return;
 
-    // 【升级①的核心】：在玩家静止时，每帧检查是否有方向键长按，从而实现连续丝滑过格
-    handleContinuousMovement();
+    // 高频扫描键盘字典，实现极其灵敏的长按连跑
+    checkContinuousInput();
 
     if (player.isMoving) {
         if (player.pixelX < player.targetPixelX) player.pixelX = Math.min(player.pixelX + player.moveSpeed, player.targetPixelX);
@@ -571,12 +565,10 @@ function update() {
         }
     }
 
-    // 智能刷新检测：在游戏运行过程中如果满2小时也会即时触发刷新
     if (Date.now() - gameState.lastRefreshTime > MAP_REFRESH_INTERVAL) {
         refreshWorldElements();
     }
 
-    // 电视机距离感应
     const tv = gameState.worldObjects.tv;
     const distToTV = Math.sqrt(Math.pow(player.gridX - tv.gridX, 2) + Math.pow(player.gridY - tv.gridY, 2));
     tv.isOn = distToTV <= 2.5;
@@ -602,6 +594,7 @@ function draw() {
     let camX = player.pixelX - VIEW_WIDTH / 2 + TILE_SIZE / 2;
     let camY = player.pixelY - VIEW_HEIGHT / 2 + TILE_SIZE / 2;
 
+    // 相机边界计算同步更新为 50 格
     camX = Math.max(0, Math.min(camX, MAP_GRID * TILE_SIZE - VIEW_WIDTH));
     camY = Math.max(0, Math.min(camY, MAP_GRID * TILE_SIZE - VIEW_HEIGHT));
 
@@ -610,7 +603,6 @@ function draw() {
     const startY = Math.floor(camY / TILE_SIZE);
     const endY = Math.min(startY + Math.ceil(VIEW_HEIGHT / TILE_SIZE) + 1, MAP_GRID);
 
-    // 1. 渲染草地/街道
     for (let y = startY; y < endY; y++) {
         for (let x = startX; x < endX; x++) {
             const screenX = x * TILE_SIZE - camX;
@@ -627,7 +619,6 @@ function draw() {
         }
     }
 
-    // 2. 绘制反光水坑
     puddles.forEach(p => {
         const sx = p.gridX * TILE_SIZE - camX;
         const sy = p.gridY * TILE_SIZE - camY;
@@ -637,20 +628,17 @@ function draw() {
 
     const objs = gameState.worldObjects;
 
-    // 3. 渲染升级后的交互建筑群（包含新增5大标志建筑）
     drawPixelSprite(objs.vendingMachine.gridX, objs.vendingMachine.gridY, camX, camY, '#e74c3c', '🥤'); 
     drawPixelSprite(8, 15, camX, camY, '#fd79a8', '👧');  
     drawPixelSprite(objs.clawMachine.gridX, objs.clawMachine.gridY, camX, camY, '#9b59b6', '🧸'); 
     drawPixelSprite(objs.chair.gridX, objs.chair.gridY, camX, camY, '#d4a574', '🛋️');  
     drawPixelSprite(objs.fountain.gridX, objs.fountain.gridY, camX, camY, '#3498db', '⛲'); 
 
-    // 新场景标志物重绘
     drawPixelSprite(objs.bench.gridX, objs.bench.gridY, camX, camY, objs.bench.isCleaned ? '#ffeaa7' : '#636e72', '🧹'); 
     drawPixelSprite(objs.telephone.gridX, objs.telephone.gridY, camX, camY, '#d63031', '☎️'); 
     drawPixelSprite(objs.guitarist.gridX, objs.guitarist.gridY, camX, camY, '#fdcb6e', '🎸'); 
     drawPixelSprite(objs.mailbox.gridX, objs.mailbox.gridY, camX, camY, '#10ac84', objs.mailbox.hasLetter ? '📬' : '✉️'); 
 
-    // 电视机雷达动态绘制
     const tvX = objs.tv.gridX * TILE_SIZE - camX;
     const tvY = objs.tv.gridY * TILE_SIZE - camY;
     ctx.fillStyle = '#2c3e50';
@@ -663,7 +651,6 @@ function draw() {
         ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
     }
 
-    // 4. 绘制地图动态刷新出的掉落道具
     gameState.mapItems.forEach(item => {
         const ix = item.gridX * TILE_SIZE - camX;
         const iy = item.gridY * TILE_SIZE - camY;
@@ -676,13 +663,11 @@ function draw() {
         ctx.fillText(item.emoji, ix + 8, iy + 20);
     });
 
-    // 5. 绘制流浪猫
     const catX = objs.cat.gridX * TILE_SIZE - camX;
     const catY = objs.cat.gridY * TILE_SIZE - camY;
     ctx.font = '16px sans-serif';
     ctx.fillText('🐱', catX + 8, catY + 22);
 
-    // 6. 绘制玩家
     const px = player.pixelX - camX;
     const py = player.pixelY - camY;
     ctx.fillStyle = '#ff7675'; 
@@ -693,7 +678,6 @@ function draw() {
     if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 10, py + 5, 2, 3);
     if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 5, 2, 3);
 
-    // 7. 渲染粒子
     particles.forEach(p => {
         const psx = p.x - camX;
         const psy = p.y - camY;
@@ -724,9 +708,6 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-// ==========================================
-// 7. 老板键与双向挂机监听
-// ==========================================
 function toggleBossMode() {
     isBossMode = !isBossMode;
     const gameContainer = document.getElementById('gameContainer');
@@ -759,10 +740,13 @@ document.getElementById('hideBtn').addEventListener('click', () => {
 // ==========================================
 // 8. 游戏开机启动引导
 // ==========================================
-loadOrCreateGame(); // 载入本地持久化存档与判断刷新时间
+loadOrCreateGame(); 
 updateInventoryUI();
 loop();
 
+// 核心优化：改用极速时钟轮询机制，每 16 毫秒高频扫描按键，确保长按连跑绝无死角
+setInterval(checkContinuousInput, 16);
+
 setTimeout(() => {
-    createDialogDOM("🎮 摸鱼城 2.0 升级成功", "1. 支持长按上下左右流畅飞奔了！<br>2. 新增了 5 大隐藏交互建筑，快去满地图捡道具和它们互动吧！<br>3. 游玩记录已接入浏览器本地持久化，每 2 小时地图生态会长出全新的道具哦！");
+    createDialogDOM("🎮 摸鱼城精简大升级", "1. 地图已缩减至温馨的 50 * 50，再也不会空空荡荡啦！<br>2. 彻底重写了输入引擎，长按 WASD 或方向键现在可以超顺滑地连续奔跑！");
 }, 200);
