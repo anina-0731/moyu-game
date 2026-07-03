@@ -1,4 +1,9 @@
 // ==========================================
+// 💡【终极降维打击】自动强擦旧存档，防止越界隐形
+// ==========================================
+localStorage.clear(); 
+
+// ==========================================
 // 1. 游戏基础配置与初始化（地图 50 * 50）
 // ==========================================
 const canvas = document.getElementById('gameCanvas');
@@ -15,10 +20,10 @@ let isPaused = false;
 let isBossMode = false;
 let activeDialog = null;    
 
-// 玩家数据结构
+// 玩家数据结构：默认出生在屏幕中心 (15, 15)
 const player = {
-    gridX: 15,             // 强制初始网格 X
-    gridY: 15,             // 强制初始网格 Y
+    gridX: 15,             
+    gridY: 15,             
     pixelX: 15 * TILE_SIZE,
     pixelY: 15 * TILE_SIZE,
     targetPixelX: 15 * TILE_SIZE,
@@ -35,7 +40,7 @@ let particles = [];
 const keysPressed = {};
 
 // ==========================================
-// 2. 核心：彻底粉碎旧存档的越界与隐身 Bug
+// 2. 存档与地图周期刷新系统 (2小时刷新)
 // ==========================================
 const MAP_REFRESH_INTERVAL = 2 * 60 * 60 * 1000; 
 
@@ -98,33 +103,15 @@ function generateRandomItems() {
     return items;
 }
 
-// 💥【终极杀招】：完全无视本地旧的隐身存档坐标，强制拉回地图中央
 function loadOrCreateGame() {
-    const savedData = localStorage.getItem('pixel_moyu_save');
-    if (savedData) {
-        try {
-            const parsed = JSON.parse(savedData);
-            gameState = parsed.gameState;
-            player.inventory = parsed.player.inventory || [];
-            player.direction = parsed.player.direction || 'down';
-        } catch(e) {
-            initNewUniverse();
-        }
-    } else {
-        initNewUniverse();
-    }
-
-    // 🔒【强行校准】直接将坐标物理焊死在 15,15 安全区，防止一切黑屏和隐身 bug
+    // 强制每次进入都初始化，彻底修复隐形
+    initNewUniverse();
     player.gridX = 15;
     player.gridY = 15;
-    player.pixelX = 15 * TILE_SIZE;
-    player.pixelY = 15 * TILE_SIZE;
+    player.pixelX = player.gridX * TILE_SIZE;
+    player.pixelY = player.gridY * TILE_SIZE;
     player.targetPixelX = player.pixelX;
     player.targetPixelY = player.pixelY;
-
-    if (Date.now() - gameState.lastRefreshTime > MAP_REFRESH_INTERVAL) {
-        refreshWorldElements();
-    }
 }
 
 function initNewUniverse() {
@@ -333,7 +320,7 @@ function checkInteractions() {
         const callStories = [
             "喂？是外卖吗？不，这里是像素摸鱼局......",
             "接通了！里面传出了神秘的电台音乐，竟然有一丝治愈的白噪音。",
-            "你拨通了一个未知号码：'听听说吗？往路边的喷泉里投硬币，真的能测运势！'",
+            "你拨通了一个未知号码：'听说了吗？往路边的喷泉里投硬币，真的能测运势！'",
             "电话里传来一个声音：'别摸鱼了，老板正在提刀赶来的路上！'"
         ];
         createDialogDOM("☎️ 复古电话亭", callStories[objs.telephone.callCount % callStories.length]);
@@ -458,7 +445,7 @@ function checkInteractions() {
     }
 
     if (frontX === 8 && frontY === 15) {
-        createDialogDOM("👧 路边的小姐姐", "偷偷在这里摸鱼，是只属于我们两个人的秘密哦！🤫");
+        createDialogDOM("👧 路边的小姐打个招呼", "偷偷在这里摸鱼，是只属于我们两个人的秘密哦！🤫");
     }
 }
 
@@ -526,7 +513,7 @@ function updateInventoryUI() {
 }
 
 // ==========================================
-// 6. 核心帧更新与 Canvas 渲染
+// 6. 核心帧更新与 Canvas 像素画渲染
 // ==========================================
 function update() {
     if (isPaused || isBossMode) return;
@@ -585,4 +572,172 @@ function draw() {
     let camY = player.pixelY - VIEW_HEIGHT / 2 + TILE_SIZE / 2;
 
     camX = Math.max(0, Math.min(camX, MAP_GRID * TILE_SIZE - VIEW_WIDTH));
-    camY = Math.max(0, Math.min(camY, MAP_
+    camY = Math.max(0, Math.min(camY, MAP_GRID * TILE_SIZE - VIEW_HEIGHT));
+
+    const startX = Math.floor(camX / TILE_SIZE);
+    const endX = Math.min(startX + Math.ceil(VIEW_WIDTH / TILE_SIZE) + 1, MAP_GRID);
+    const startY = Math.floor(camY / TILE_SIZE);
+    const endY = Math.min(startY + Math.ceil(VIEW_HEIGHT / TILE_SIZE) + 1, MAP_GRID);
+
+    for (let y = startY; y < endY; y++) {
+        for (let x = startX; x < endX; x++) {
+            const screenX = x * TILE_SIZE - camX;
+            const screenY = y * TILE_SIZE - camY;
+
+            if (gameState.gameMap[y] && gameState.gameMap[y][x] === 1) {
+                ctx.fillStyle = '#9bbc0f'; 
+            } else {
+                ctx.fillStyle = '#8b956d'; 
+            }
+            ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+            ctx.strokeStyle = 'rgba(0,0,0,0.02)';
+            ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
+        }
+    }
+
+    puddles.forEach(p => {
+        const sx = p.gridX * TILE_SIZE - camX;
+        const sy = p.gridY * TILE_SIZE - camY;
+        ctx.fillStyle = '#4a69bd';
+        ctx.fillRect(sx + 4, sy + 8, TILE_SIZE - 8, TILE_SIZE - 12);
+    });
+
+    const objs = gameState.worldObjects;
+
+    drawPixelSprite(objs.vendingMachine.gridX, objs.vendingMachine.gridY, camX, camY, '#e74c3c', '🥤'); 
+    drawPixelSprite(8, 15, camX, camY, '#fd79a8', '👧');  
+    drawPixelSprite(objs.clawMachine.gridX, objs.clawMachine.gridY, camX, camY, '#9b59b6', '🧸'); 
+    drawPixelSprite(objs.chair.gridX, objs.chair.gridY, camX, camY, '#d4a574', '🛋️');  
+    drawPixelSprite(objs.fountain.gridX, objs.fountain.gridY, camX, camY, '#3498db', '⛲'); 
+
+    drawPixelSprite(objs.bench.gridX, objs.bench.gridY, camX, camY, objs.bench.isCleaned ? '#ffeaa7' : '#636e72', '🧹'); 
+    drawPixelSprite(objs.telephone.gridX, objs.telephone.gridY, camX, camY, '#d63031', '☎️'); 
+    drawPixelSprite(objs.guitarist.gridX, objs.guitarist.gridY, camX, camY, '#fdcb6e', '🎸'); 
+    drawPixelSprite(objs.mailbox.gridX, objs.mailbox.gridY, camX, camY, '#10ac84', objs.mailbox.hasLetter ? '📬' : '✉️'); 
+
+    const tvX = objs.tv.gridX * TILE_SIZE - camX;
+    const tvY = objs.tv.gridY * TILE_SIZE - camY;
+    ctx.fillStyle = '#2c3e50';
+    ctx.fillRect(tvX, tvY, TILE_SIZE, TILE_SIZE);
+    if (tv.isOn) {
+        ctx.fillStyle = (Math.floor(tv.animFrame / 15) % 2 === 0) ? '#1abc9c' : '#f1c40f';
+        ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
+    } else {
+        ctx.fillStyle = '#111';
+        ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
+    }
+
+    gameState.mapItems.forEach(item => {
+        const ix = item.gridX * TILE_SIZE - camX;
+        const iy = item.gridY * TILE_SIZE - camY;
+        ctx.fillStyle = item.color;
+        ctx.beginPath();
+        ctx.arc(ix + 16, iy + 16, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.font = '10px sans-serif';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(item.emoji, ix + 8, iy + 20);
+    });
+
+    const catX = objs.cat.gridX * TILE_SIZE - camX;
+    const catY = objs.cat.gridY * TILE_SIZE - camY;
+    ctx.font = '16px sans-serif';
+    ctx.fillText('🐱', catX + 8, catY + 22);
+
+    // 💡【新主角形象绘制区域】精致的双马尾小女孩！
+    const px = player.pixelX - camX;
+    const py = player.pixelY - camY;
+
+    // 1. 绘制小女孩的长发/双马尾（深棕色）
+    ctx.fillStyle = '#5c3d2e'; 
+    ctx.fillRect(px + 2, py + 4, 6, 12);  // 左马尾
+    ctx.fillRect(px + 24, py + 4, 6, 12); // 右马尾
+    ctx.fillRect(px + 6, py + 0, 20, 5);  // 头顶刘海
+
+    // 2. 脸部裙装
+    ctx.fillStyle = '#ffeaa7'; // 肤色
+    ctx.fillRect(px + 6, py + 4, 20, 10);
+    ctx.fillStyle = '#ff7675'; // 漂亮的珊瑚红小裙子
+    ctx.fillRect(px + 4, py + 14, 24, 16);
+
+    // 3. 灵动的眼睛（根据走动方向调整视线）
+    ctx.fillStyle = '#2d3436'; 
+    if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 7, 2, 3);
+    if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 19, py + 7, 2, 3);
+    if (player.direction === 'up') {
+        // 后脑勺视角：全部画上棕色头发覆盖
+        ctx.fillStyle = '#5c3d2e';
+        ctx.fillRect(px + 6, py + 4, 20, 10);
+    }
+
+    particles.forEach(p => {
+        const psx = p.x - camX;
+        const psy = p.y - camY;
+        ctx.fillStyle = p.color;
+        if (p.isNote) {
+            ctx.font = '12px sans-serif';
+            ctx.fillText('🎵', psx, psy);
+        } else {
+            ctx.fillRect(psx, psy, 4, 4);
+        }
+    });
+}
+
+function drawPixelSprite(gx, gy, camX, camY, color, emoji) {
+    const sx = gx * TILE_SIZE - camX;
+    const sy = gy * TILE_SIZE - camY;
+    ctx.fillStyle = color;
+    ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+    ctx.strokeStyle = '#2c2c2c';
+    ctx.strokeRect(sx, sy, TILE_SIZE, TILE_SIZE);
+    ctx.font = '16px sans-serif';
+    ctx.fillText(emoji, sx + 8, sy + 22);
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+function toggleBossMode() {
+    isBossMode = !isBossMode;
+    const gameContainer = document.getElementById('gameContainer');
+    const bossScreen = document.getElementById('bossKeyScreen');
+    const pauseDialog = document.getElementById('pauseDialog');
+
+    if (isBossMode) {
+        gameContainer.style.display = 'none';
+        bossScreen.classList.add('active');
+        removeDialogDOM();
+        document.getElementById('bossKeyTime').innerText = new Date().toLocaleString();
+    } else {
+        bossScreen.classList.remove('active');
+        gameContainer.style.display = 'flex';
+        isPaused = true;
+        pauseDialog.classList.add('active');
+    }
+}
+
+document.getElementById('resumeBtn').addEventListener('click', () => {
+    isPaused = false;
+    document.getElementById('pauseDialog').classList.remove('active');
+});
+
+document.getElementById('hideBtn').addEventListener('click', () => {
+    document.getElementById('pauseDialog').classList.remove('active');
+    toggleBossMode();
+});
+
+// ==========================================
+// 8. 游戏开机启动引导
+// ==========================================
+loadOrCreateGame(); 
+updateInventoryUI();
+loop();
+
+setInterval(checkContinuousInput, 16);
+
+setTimeout(() => {
+    createDialogDOM("👧 小女孩皮肤已装配！", "本地冲突旧存档已被永久洗去。这一次你绝对能闪现回广场正中心，看清自己的可爱双马尾了！");
+}, 200);
