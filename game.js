@@ -17,8 +17,8 @@ let activeDialog = null;
 
 // 玩家数据结构
 const player = {
-    gridX: 15,             // 默认出生点改到 15
-    gridY: 15,             
+    gridX: 15,             // 强制初始网格 X
+    gridY: 15,             // 强制初始网格 Y
     pixelX: 15 * TILE_SIZE,
     pixelY: 15 * TILE_SIZE,
     targetPixelX: 15 * TILE_SIZE,
@@ -35,7 +35,7 @@ let particles = [];
 const keysPressed = {};
 
 // ==========================================
-// 2. 存档与地图周期刷新系统 (2小时刷新)
+// 2. 核心：彻底粉碎旧存档的越界与隐身 Bug
 // ==========================================
 const MAP_REFRESH_INTERVAL = 2 * 60 * 60 * 1000; 
 
@@ -98,23 +98,13 @@ function generateRandomItems() {
     return items;
 }
 
-// 【强制救援核心】：读取存档并进行暴力越界重置
+// 💥【终极杀招】：完全无视本地旧的隐身存档坐标，强制拉回地图中央
 function loadOrCreateGame() {
     const savedData = localStorage.getItem('pixel_moyu_save');
     if (savedData) {
         try {
             const parsed = JSON.parse(savedData);
             gameState = parsed.gameState;
-            
-            // 💡【降维打击】强制检查：如果存档里的人在 50 格外，或者由于未知 Bug 找不到了，直接拉回 (15, 15)
-            if (!parsed.player || parsed.player.gridX >= MAP_GRID || parsed.player.gridY >= MAP_GRID || parsed.player.gridX < 0 || parsed.player.gridY < 0) {
-                player.gridX = 15;
-                player.gridY = 15;
-            } else {
-                player.gridX = parsed.player.gridX;
-                player.gridY = parsed.player.gridY;
-            }
-
             player.inventory = parsed.player.inventory || [];
             player.direction = parsed.player.direction || 'down';
         } catch(e) {
@@ -124,9 +114,11 @@ function loadOrCreateGame() {
         initNewUniverse();
     }
 
-    // 💡【双重保险】不管有没有存档，开机时直接强制重位像素坐标，确保镜头死死锁在人身上
-    player.pixelX = player.gridX * TILE_SIZE;
-    player.pixelY = player.gridY * TILE_SIZE;
+    // 🔒【强行校准】直接将坐标物理焊死在 15,15 安全区，防止一切黑屏和隐身 bug
+    player.gridX = 15;
+    player.gridY = 15;
+    player.pixelX = 15 * TILE_SIZE;
+    player.pixelY = 15 * TILE_SIZE;
     player.targetPixelX = player.pixelX;
     player.targetPixelY = player.pixelY;
 
@@ -341,7 +333,7 @@ function checkInteractions() {
         const callStories = [
             "喂？是外卖吗？不，这里是像素摸鱼局......",
             "接通了！里面传出了神秘的电台音乐，竟然有一丝治愈的白噪音。",
-            "你拨通了一个未知号码：'听说了吗？往路边的喷泉里投硬币，真的能测运势！'",
+            "你拨通了一个未知号码：'听听说吗？往路边的喷泉里投硬币，真的能测运势！'",
             "电话里传来一个声音：'别摸鱼了，老板正在提刀赶来的路上！'"
         ];
         createDialogDOM("☎️ 复古电话亭", callStories[objs.telephone.callCount % callStories.length]);
@@ -534,7 +526,7 @@ function updateInventoryUI() {
 }
 
 // ==========================================
-// 6. 核心帧更新与 Canvas 像素画渲染
+// 6. 核心帧更新与 Canvas 渲染
 // ==========================================
 function update() {
     if (isPaused || isBossMode) return;
@@ -593,156 +585,4 @@ function draw() {
     let camY = player.pixelY - VIEW_HEIGHT / 2 + TILE_SIZE / 2;
 
     camX = Math.max(0, Math.min(camX, MAP_GRID * TILE_SIZE - VIEW_WIDTH));
-    camY = Math.max(0, Math.min(camY, MAP_GRID * TILE_SIZE - VIEW_HEIGHT));
-
-    const startX = Math.floor(camX / TILE_SIZE);
-    const endX = Math.min(startX + Math.ceil(VIEW_WIDTH / TILE_SIZE) + 1, MAP_GRID);
-    const startY = Math.floor(camY / TILE_SIZE);
-    const endY = Math.min(startY + Math.ceil(VIEW_HEIGHT / TILE_SIZE) + 1, MAP_GRID);
-
-    for (let y = startY; y < endY; y++) {
-        for (let x = startX; x < endX; x++) {
-            const screenX = x * TILE_SIZE - camX;
-            const screenY = y * TILE_SIZE - camY;
-
-            if (gameState.gameMap[y] && gameState.gameMap[y][x] === 1) {
-                ctx.fillStyle = '#9bbc0f'; 
-            } else {
-                ctx.fillStyle = '#8b956d'; 
-            }
-            ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
-            ctx.strokeStyle = 'rgba(0,0,0,0.02)';
-            ctx.strokeRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
-        }
-    }
-
-    puddles.forEach(p => {
-        const sx = p.gridX * TILE_SIZE - camX;
-        const sy = p.gridY * TILE_SIZE - camY;
-        ctx.fillStyle = '#4a69bd';
-        ctx.fillRect(sx + 4, sy + 8, TILE_SIZE - 8, TILE_SIZE - 12);
-    });
-
-    const objs = gameState.worldObjects;
-
-    drawPixelSprite(objs.vendingMachine.gridX, objs.vendingMachine.gridY, camX, camY, '#e74c3c', '🥤'); 
-    drawPixelSprite(8, 15, camX, camY, '#fd79a8', '👧');  
-    drawPixelSprite(objs.clawMachine.gridX, objs.clawMachine.gridY, camX, camY, '#9b59b6', '🧸'); 
-    drawPixelSprite(objs.chair.gridX, objs.chair.gridY, camX, camY, '#d4a574', '🛋️');  
-    drawPixelSprite(objs.fountain.gridX, objs.fountain.gridY, camX, camY, '#3498db', '⛲'); 
-
-    drawPixelSprite(objs.bench.gridX, objs.bench.gridY, camX, camY, objs.bench.isCleaned ? '#ffeaa7' : '#636e72', '🧹'); 
-    drawPixelSprite(objs.telephone.gridX, objs.telephone.gridY, camX, camY, '#d63031', '☎️'); 
-    drawPixelSprite(objs.guitarist.gridX, objs.guitarist.gridY, camX, camY, '#fdcb6e', '🎸'); 
-    drawPixelSprite(objs.mailbox.gridX, objs.mailbox.gridY, camX, camY, '#10ac84', objs.mailbox.hasLetter ? '📬' : '✉️'); 
-
-    const tvX = objs.tv.gridX * TILE_SIZE - camX;
-    const tvY = objs.tv.gridY * TILE_SIZE - camY;
-    ctx.fillStyle = '#2c3e50';
-    ctx.fillRect(tvX, tvY, TILE_SIZE, TILE_SIZE);
-    if (tv.isOn) {
-        ctx.fillStyle = (Math.floor(tv.animFrame / 15) % 2 === 0) ? '#1abc9c' : '#f1c40f';
-        ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
-    } else {
-        ctx.fillStyle = '#111';
-        ctx.fillRect(tvX + 4, tvY + 4, TILE_SIZE - 8, TILE_SIZE - 12);
-    }
-
-    gameState.mapItems.forEach(item => {
-        const ix = item.gridX * TILE_SIZE - camX;
-        const iy = item.gridY * TILE_SIZE - camY;
-        ctx.fillStyle = item.color;
-        ctx.beginPath();
-        ctx.arc(ix + 16, iy + 16, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.font = '10px sans-serif';
-        ctx.fillStyle = '#fff';
-        ctx.fillText(item.emoji, ix + 8, iy + 20);
-    });
-
-    const catX = objs.cat.gridX * TILE_SIZE - camX;
-    const catY = objs.cat.gridY * TILE_SIZE - camY;
-    ctx.font = '16px sans-serif';
-    ctx.fillText('🐱', catX + 8, catY + 22);
-
-    const px = player.pixelX - camX;
-    const py = player.pixelY - camY;
-    ctx.fillStyle = '#ff7675'; 
-    ctx.fillRect(px + 4, py + 8, 24, 22);
-    ctx.fillStyle = '#ffeaa7'; 
-    ctx.fillRect(px + 8, py + 2, 16, 10);
-    ctx.fillStyle = '#2d3436'; 
-    if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 10, py + 5, 2, 3);
-    if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 5, 2, 3);
-
-    particles.forEach(p => {
-        const psx = p.x - camX;
-        const psy = p.y - camY;
-        ctx.fillStyle = p.color;
-        if (p.isNote) {
-            ctx.font = '12px sans-serif';
-            ctx.fillText('🎵', psx, psy);
-        } else {
-            ctx.fillRect(psx, psy, 4, 4);
-        }
-    });
-}
-
-function drawPixelSprite(gx, gy, camX, camY, color, emoji) {
-    const sx = gx * TILE_SIZE - camX;
-    const sy = gy * TILE_SIZE - camY;
-    ctx.fillStyle = color;
-    ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
-    ctx.strokeStyle = '#2c2c2c';
-    ctx.strokeRect(sx, sy, TILE_SIZE, TILE_SIZE);
-    ctx.font = '16px sans-serif';
-    ctx.fillText(emoji, sx + 8, sy + 22);
-}
-
-function loop() {
-    update();
-    draw();
-    requestAnimationFrame(loop);
-}
-
-function toggleBossMode() {
-    isBossMode = !isBossMode;
-    const gameContainer = document.getElementById('gameContainer');
-    const bossScreen = document.getElementById('bossKeyScreen');
-    const pauseDialog = document.getElementById('pauseDialog');
-
-    if (isBossMode) {
-        gameContainer.style.display = 'none';
-        bossScreen.classList.add('active');
-        removeDialogDOM();
-        document.getElementById('bossKeyTime').innerText = new Date().toLocaleString();
-    } else {
-        bossScreen.classList.remove('active');
-        gameContainer.style.display = 'flex';
-        isPaused = true;
-        pauseDialog.classList.add('active');
-    }
-}
-
-document.getElementById('resumeBtn').addEventListener('click', () => {
-    isPaused = false;
-    document.getElementById('pauseDialog').classList.remove('active');
-});
-
-document.getElementById('hideBtn').addEventListener('click', () => {
-    document.getElementById('pauseDialog').classList.remove('active');
-    toggleBossMode();
-});
-
-// ==========================================
-// 8. 游戏开机启动引导
-// ==========================================
-loadOrCreateGame(); // 💡 内部已加入强制安全点闪现
-updateInventoryUI();
-loop();
-
-setInterval(checkContinuousInput, 16);
-
-setTimeout(() => {
-    createDialogDOM("✨ 紧急搜救成功", "已在代码层强制把你捞回了地图中心点 (15, 15)！快试试长按键盘狂奔吧！");
-}, 200);
+    camY = Math.max(0, Math.min(camY, MAP_
