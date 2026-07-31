@@ -13,7 +13,14 @@
         <div class="game-wrapper">
             <canvas id="gameCanvas" width="800" height="600"></canvas>
             <div class="inventory-panel">
-@@ -22,6 +23,130 @@
+                <div class="inventory-title">物品栏</div>
+                <div class="inventory-slots" id="inventorySlots">
+                    <!-- 物品将动态插入这里 -->
+                </div>
+            </div>
+        </div>
+        <div class="info-panel">
+            <p><strong>操作方式：</strong></p>
             <p>↑↓←→ 或 WASD 移动</p>
             <p><strong>目标：</strong> 收集金币和小鱼干</p>
             <p id="stats">收集物品: 0</p>
@@ -143,3 +150,7 @@
             </div>
         </div>
     </div>
+
+    <script src="game.js"></script>
+</body>
+</html>
