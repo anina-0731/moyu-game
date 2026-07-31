@@ -111,7 +111,7 @@ function generateRandomItems() {
         { type: 'flower', name: '小雏菊', emoji: '🌼', color: '#e67e22' },
         { type: 'water', name: '露水滴', emoji: '💧', color: '#74b9ff' }
     ];
-    
+
     for (let i = 0; i < 35; i++) {
         let rx = Math.floor(Math.random() * MAP_GRID);
         let ry = Math.floor(Math.random() * MAP_GRID);
@@ -144,6 +144,9 @@ function loadOrCreateGame() {
             const parsed = JSON.parse(saved);
             gameState = parsed.gameState;
             if (!gameState.checkInDays) gameState.checkInDays = [];
+            if (parsed.player && parsed.player.inventory) {
+                player.inventory = parsed.player.inventory;
+            }
         } catch(e) {
             initNewUniverse();
         }
@@ -254,10 +257,20 @@ window.addEventListener('keydown', (e) => {
     }
 
     if (isPaused || player.isSitting || activeDialog) {
+    if (isPaused || activeDialog) {
         if (activeDialog && (key === 'e' || keysPressed[key])) {
             removeDialogDOM();
         }
         return;
+    }
+
+    // 歇息/坐下状态按任意移动键或 E 站起
+    if (player.isSitting) {
+        if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'e'].includes(key)) {
+            player.isSitting = false;
+            createDialogDOM("🧍 站起", "你伸了个懒腰，重新站了起来！");
+            return;
+        }
     }
 
     if (key === 'e') {
@@ -354,7 +367,8 @@ function renderEmbeddedCalendar() {
     for (let i = 1; i <= 30; i++) {
         let isChecked = i <= totalDays;
         let isToday = i === totalDays; // 假设最新登录的这天为今天
-        
+        let isToday = i === totalDays; 
+
         let displaySymbol = '';
         if (isChecked) {
             displaySymbol = isToday ? todayEmoji : '✨';
@@ -391,6 +405,18 @@ function renderEmbeddedCalendar() {
 // 5. 互动逻辑与物品更新
 // ==========================================
 function checkInteractions() {
+    // 1. 优先检查捡拾脚下或前方的地面物品
+    const currentItemIdx = gameState.mapItems.findIndex(i => 
+        (i.gridX === player.gridX && i.gridY === player.gridY)
+    );
+    if (currentItemIdx !== -1) {
+        const item = gameState.mapItems.splice(currentItemIdx, 1)[0];
+        addItemToInventory(item.type, item.name, item.emoji);
+        saveGame();
+        createDialogDOM("✨ 拾取物品", `你在地上捡到了【${item.emoji} ${item.name}】！已放入背包。`);
+        return;
+    }
+
     let frontX = player.gridX;
     let frontY = player.gridY;
     if (player.direction === 'up') frontY--;
@@ -398,12 +424,24 @@ function checkInteractions() {
     if (player.direction === 'left') frontX--;
     if (player.direction === 'right') frontX++;
 
+    const frontItemIdx = gameState.mapItems.findIndex(i => i.gridX === frontX && i.gridY === frontY);
+    if (frontItemIdx !== -1) {
+        const item = gameState.mapItems.splice(frontItemIdx, 1)[0];
+        addItemToInventory(item.type, item.name, item.emoji);
+        saveGame();
+        createDialogDOM("✨ 拾取物品", `你在面前捡到了【${item.emoji} ${item.name}】！已放入背包。`);
+        return;
+    }
+
     const objs = gameState.worldObjects;
 
+    // 2. 交互判定
     if (frontX === objs.coffeeCart.gridX && frontY === objs.coffeeCart.gridY) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
             player.inventory.splice(coinIdx, 1);
+            player.inventory[coinIdx].count--;
+            if (player.inventory[coinIdx].count <= 0) player.inventory.splice(coinIdx, 1);
             addItemToInventory('coffee', '冰美式', '☕');
             saveGame();
             createDialogDOM("☕ 街角咖啡车", "用 [🪙 硬币] 兑换了一杯【☕ 冰美式】！提神醒脑，写培训 PPT 效率提升 100%！");
@@ -417,6 +455,8 @@ function checkInteractions() {
         const waterIdx = player.inventory.findIndex(i => i.type === 'water');
         if (waterIdx !== -1) {
             player.inventory.splice(waterIdx, 1);
+            player.inventory[waterIdx].count--;
+            if (player.inventory[waterIdx].count <= 0) player.inventory.splice(waterIdx, 1);
             objs.wishingTree.waterCount++;
             updateInventoryUI();
             saveGame();
@@ -441,6 +481,8 @@ function checkInteractions() {
         const fishIdx = player.inventory.findIndex(i => i.type === 'fish');
         if (fishIdx !== -1) {
             player.inventory.splice(fishIdx, 1);
+            player.inventory[fishIdx].count--;
+            if (player.inventory[fishIdx].count <= 0) player.inventory.splice(fishIdx, 1);
             objs.cat.isFollowing = true;
             updateInventoryUI();
             saveGame();
@@ -455,11 +497,100 @@ function checkInteractions() {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
             player.inventory.splice(coinIdx, 1);
+            player.inventory[coinIdx].count--;
+            if (player.inventory[coinIdx].count <= 0) player.inventory.splice(coinIdx, 1);
             updateInventoryUI();
             saveGame();
             createDialogDOM("⛲ 许愿喷泉", "✨ 大吉！今天的培训讲座学员满意度将高达 100%！");
         } else {
             createDialogDOM("⛲ 许愿喷泉", "朝里面扔一块 [🪙 硬币]，看一看今天的运势吧！");
+        }
+        return;
+    }
+
+    if (frontX === objs.vendingMachine.gridX && frontY === objs.vendingMachine.gridY) {
+        const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
+        if (coinIdx !== -1) {
+            player.inventory[coinIdx].count--;
+            if (player.inventory[coinIdx].count <= 0) player.inventory.splice(coinIdx, 1);
+            addItemToInventory('soda', '冰汽水', '🥤');
+            saveGame();
+            createDialogDOM("🥤 自动售货机", "投进【🪙 硬币】，叮咚~ 掉落了一瓶【🥤 冰汽水】！整个人都冰爽了起来。");
+        } else {
+            createDialogDOM("🥤 自动售货机", "售货机里摆满冰镇饮料。投一枚 [🪙 硬币] 就能购买。");
+        }
+        return;
+    }
+
+    if (frontX === objs.clawMachine.gridX && frontY === objs.clawMachine.gridY) {
+        const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
+        if (coinIdx !== -1) {
+            player.inventory[coinIdx].count--;
+            if (player.inventory[coinIdx].count <= 0) player.inventory.splice(coinIdx, 1);
+            addItemToInventory('doll', '可爱公仔', '🧸');
+            saveGame();
+            createDialogDOM("🧸 抓娃娃机", "机械爪一阵猛摇... 竟然真的抓到了【🧸 可爱公仔】！太幸运了！");
+        } else {
+            createDialogDOM("🧸 抓娃娃机", "充满童趣的娃娃机！需要投入 [🪙 硬币] 才能试一把。");
+        }
+        return;
+    }
+
+    if (frontX === objs.tv.gridX && frontY === objs.tv.gridY) {
+        objs.tv.isOn = !objs.tv.isOn;
+        saveGame();
+        if (objs.tv.isOn) {
+            createDialogDOM("📺 怀旧电视机", "电视机咔哒一声打开了！正播放着《摸鱼大师的修养》纪录片。");
+        } else {
+            createDialogDOM("📺 怀旧电视机", "电视机已关闭，屏幕呈一片漆黑。");
+        }
+        return;
+    }
+
+    if ((frontX === objs.chair.gridX && frontY === objs.chair.gridY) || 
+        (frontX === objs.bench.gridX && frontY === objs.bench.gridY)) {
+        player.isSitting = true;
+        createDialogDOM("🪑 歇息片刻", "你舒服地坐了下来，感到浑身疲惫一扫而空...（按 WASD 或 E 键可站起）");
+        return;
+    }
+
+    if (frontX === objs.telephone.gridX && frontY === objs.telephone.gridY) {
+        objs.telephone.callCount++;
+        saveGame();
+        createDialogDOM("📞 街头电话亭", `嘟... 嘟... 电话那头发出了声音：“喂？这里是全国摸鱼热线，您是第 ${objs.telephone.callCount} 位拨通的幸运用户！”`);
+        return;
+    }
+
+    if (frontX === objs.guitarist.gridX && frontY === objs.guitarist.gridY) {
+        const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
+        if (coinIdx !== -1) {
+            player.inventory[coinIdx].count--;
+            if (player.inventory[coinIdx].count <= 0) player.inventory.splice(coinIdx, 1);
+            objs.guitarist.isTipped = true;
+            saveGame();
+            createDialogDOM("🎸 流浪吉他手", "你打赏了一枚【🪙 硬币】。吉他手弹奏了一曲极为悠扬舒缓的民谣曲调，令人沉醉~");
+        } else {
+            createDialogDOM("🎸 流浪吉他手", "“嗨朋友，给点打赏 [🪙 硬币]，为你弹一首小镇抒情曲吧！”");
+        }
+        return;
+    }
+
+    if (frontX === objs.mailbox.gridX && frontY === objs.mailbox.gridY) {
+        createDialogDOM("📮 复古邮箱", "打开邮箱看了一眼，里面有一封【摸鱼协会】寄来的感谢信：“感谢你为小镇繁荣做出的贡献！”");
+        return;
+    }
+
+    if (frontX === objs.birdNest.gridX && frontY === objs.birdNest.gridY) {
+        const flowerIdx = player.inventory.findIndex(i => i.type === 'flower');
+        if (flowerIdx !== -1) {
+            player.inventory[flowerIdx].count--;
+            if (player.inventory[flowerIdx].count <= 0) player.inventory.splice(flowerIdx, 1);
+            objs.birdNest.isFed = true;
+            updateInventoryUI();
+            saveGame();
+            createDialogDOM("🪹 树顶鸟巢", "你在鸟巢旁放下了一朵【🌼 小雏菊】，小鸟快乐地叽叽喳喳叫了起来！");
+        } else {
+            createDialogDOM("🪹 树顶鸟巢", "树上的小鸟正唧唧喳喳地筑巢。送它一朵 [🌼 小雏菊] 装饰小家吧！");
         }
         return;
     }
@@ -476,7 +607,7 @@ function updateInventoryUI() {
     const slotsContainer = document.getElementById('inventorySlots');
     if (!slotsContainer) return;
     slotsContainer.innerHTML = '';
-    
+
     player.inventory.forEach(item => {
         const itemEl = document.createElement('div');
         itemEl.className = 'inventory-item';
@@ -542,7 +673,7 @@ function draw() {
             if (tileType === 1) ctx.fillStyle = '#a8a7a1';
             else if (tileType === 2) ctx.fillStyle = '#81c784';
             else ctx.fillStyle = '#a2d149';
-            
+
             ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
 
             if (tileType === 2) {
@@ -555,6 +686,7 @@ function draw() {
 
     const objs = gameState.worldObjects;
 
+    // 绘制所有场景地图设施对象
     drawPixelSprite(objs.vendingMachine.gridX, objs.vendingMachine.gridY, camX, camY, '#e74c3c', '🥤'); 
     drawPixelSprite(objs.clawMachine.gridX, objs.clawMachine.gridY, camX, camY, '#9b59b6', '🧸'); 
     drawPixelSprite(objs.coffeeCart.gridX, objs.coffeeCart.gridY, camX, camY, '#d35400', '☕'); 
@@ -562,8 +694,22 @@ function draw() {
     drawPixelSprite(objs.bakery.gridX, objs.bakery.gridY, camX, camY, '#f39c12', '🥐'); 
     drawPixelSprite(objs.busStop.gridX, objs.busStop.gridY, camX, camY, '#2980b9', '🚏'); 
     drawPixelSprite(objs.fountain.gridX, objs.fountain.gridY, camX, camY, '#3498db', '⛲'); 
+    drawPixelSprite(objs.tv.gridX, objs.tv.gridY, camX, camY, '#34495e', objs.tv.isOn ? '📺' : '🖥️'); 
+    drawPixelSprite(objs.chair.gridX, objs.chair.gridY, camX, camY, '#e67e22', '🪑'); 
+    drawPixelSprite(objs.bench.gridX, objs.bench.gridY, camX, camY, '#d35400', '🪑'); 
+    drawPixelSprite(objs.telephone.gridX, objs.telephone.gridY, camX, camY, '#c0392b', '📞'); 
+    drawPixelSprite(objs.guitarist.gridX, objs.guitarist.gridY, camX, camY, '#f39c12', '🎸'); 
+    drawPixelSprite(objs.mailbox.gridX, objs.mailbox.gridY, camX, camY, '#27ae60', '📮'); 
+    drawPixelSprite(objs.birdNest.gridX, objs.birdNest.gridY, camX, camY, '#16a085', '🪹'); 
+
+    // 绘制小猫
+    const cx = objs.cat.gridX * TILE_SIZE - camX;
+    const cy = objs.cat.gridY * TILE_SIZE - camY;
+    ctx.font = '16px sans-serif';
+    ctx.fillText('🐱', cx + 8, cy + 22);
 
     // 绘制 NPC
+    // 绘制 NPC (散步的小葵)
     const wnx = wanderingNpc.pixelX - camX;
     const wny = wanderingNpc.pixelY - camY;
     ctx.fillStyle = '#f1c40f'; ctx.fillRect(wnx + 6, wny + 2, 20, 6);
@@ -571,6 +717,7 @@ function draw() {
     ctx.fillStyle = '#74b9ff'; ctx.fillRect(wnx + 6, wny + 16, 20, 14);
 
     // 绘制地面物品
+    // 绘制地面掉落物品
     gameState.mapItems.forEach(item => {
         const ix = item.gridX * TILE_SIZE - camX;
         const iy = item.gridY * TILE_SIZE - camY;
@@ -585,13 +732,29 @@ function draw() {
     ctx.fillStyle = '#e84393'; ctx.fillRect(px + 4, py + 0, 24, 6);
     ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 2, py + 6, 6, 12);
     ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 24, py + 6, 6, 12); 
+    if (player.isSitting) {
+        // 坐下姿势
+        ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 10, 20, 10);
+        ctx.fillStyle = '#2d3436'; ctx.fillRect(px + 10, py + 13, 3, 3); ctx.fillRect(px + 17, py + 13, 3, 3);
+        ctx.fillStyle = '#ff7675'; ctx.fillRect(px + 4, py + 20, 24, 10);
+    } else {
+        // 正常站立姿势
+        ctx.fillStyle = '#e84393'; ctx.fillRect(px + 4, py + 0, 24, 6);
+        ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 2, py + 6, 6, 12);
+        ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 24, py + 6, 6, 12); 
 
     ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 6, 20, 10);
     ctx.fillStyle = '#2d3436'; 
     if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 9, 3, 3);
     if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 9, 3, 3);
+        ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 6, 20, 10);
+        ctx.fillStyle = '#2d3436'; 
+        if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 9, 3, 3);
+        if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 9, 3, 3);
 
     ctx.fillStyle = '#ff7675'; ctx.fillRect(px + 4, py + 16, 24, 14);
+        ctx.fillStyle = '#ff7675'; ctx.fillRect(px + 4, py + 16, 24, 14);
+    }
 }
 
 function drawPixelSprite(gx, gy, camX, camY, color, emoji) {
@@ -631,7 +794,8 @@ function toggleBossMode() {
 
     if (isBossMode) {
         gameContainer.style.display = 'none';
-        
+        if (gameContainer) gameContainer.style.display = 'none';
+
         if (!bossScreen) {
             bossScreen = document.createElement('div');
             bossScreen.id = 'bossKeyScreen';
@@ -721,6 +885,7 @@ function toggleBossMode() {
     } else {
         if (bossScreen) bossScreen.style.display = 'none';
         gameContainer.style.display = 'flex';
+        if (gameContainer) gameContainer.style.display = 'flex';
     }
 }
 
