@@ -9,7 +9,6 @@ localStorage.removeItem('pixel_moyu_save');
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// 开启像素级抗锯齿，确保像素颗粒精细不模糊
 ctx.imageSmoothingEnabled = false;
 
 const TILE_SIZE = 32;       
@@ -21,7 +20,7 @@ let isPaused = false;
 let isBossMode = false;
 let activeDialog = null;    
 
-// 玩家数据结构（默认出生在空旷区 10, 10）
+// 玩家数据结构
 const player = {
     gridX: 10,             
     gridY: 10,             
@@ -37,15 +36,11 @@ const player = {
     sitTimer: 0
 };
 
-let particles = [];
 const keysPressed = {};
 
 // ==========================================
 // 2. 世界对象、新 NPC 巡逻与打卡日历数据
 // ==========================================
-const MAP_REFRESH_INTERVAL = 2 * 60 * 60 * 1000; 
-
-// 🚶‍♀️ 新新增：在地图里随机走动巡逻的小人（小狗狗与散步少女）
 let wanderingNpc = {
     gridX: 12,
     gridY: 12,
@@ -58,9 +53,9 @@ let wanderingNpc = {
     moveTimer: 0,
     name: "散步的小葵",
     dialogs: [
-        "🌸 嗨！今天阳光真好，要和我一起去喷泉边散步吗？",
+        "🌸 嗨！今天培训课程准备得怎么样啦？要和我一起散步放松下吗？",
         "🤫 我听说地图最右上角藏着神奇的许愿池哦！",
-        "☕ 累了的话，可以去路边的椅子上坐一会儿，能恢复心情！",
+        "☕ 累了的话，可以去路边的咖啡车买杯冰美式恢复精神！",
         "🐱 你看到那只流浪小猫了吗？听说喂它小鱼干它就会一直跟着你！"
     ]
 };
@@ -69,8 +64,7 @@ let gameState = {
     lastRefreshTime: Date.now(),
     gameMap: [],
     mapItems: [],
-    // 📅 打卡日历系统：记录月度进入游戏的所有日期 (格式: YYYY-MM-DD)
-    checkInDays: [],
+    checkInDays: [], // 存储打卡日期 (YYYY-MM-DD)
     worldObjects: {
         tv: { gridX: 20, gridY: 20, isOn: false, animFrame: 0 },
         chair: { gridX: 14, gridY: 8 },
@@ -83,12 +77,11 @@ let gameState = {
         clawMachine: { gridX: 25, gridY: 10 },
         mailbox: { gridX: 35, gridY: 15, hasLetter: true },
 
-        // ✨ 5 个全新的趣味互动点：
-        coffeeCart: { gridX: 18, gridY: 12, boughtToday: false },  // ☕ 1. 移动咖啡车
-        wishingTree: { gridX: 8, gridY: 22, waterCount: 0 },       // 🌳 2. 灵感许愿树
-        bakery: { gridX: 28, gridY: 18 },                          // 🥐 3. 街角面包店
-        busStop: { gridX: 5, gridY: 8 },                           // 🚏 4. 摸鱼公交站
-        birdNest: { gridX: 22, gridY: 32, isFed: false }           // 🐦 5. 树梢鸟窝
+        coffeeCart: { gridX: 18, gridY: 12, boughtToday: false },
+        wishingTree: { gridX: 8, gridY: 22, waterCount: 0 },
+        bakery: { gridX: 28, gridY: 18 },
+        busStop: { gridX: 5, gridY: 8 },
+        birdNest: { gridX: 22, gridY: 32, isFed: false }
     }
 };
 
@@ -135,9 +128,9 @@ function generateRandomItems() {
     return items;
 }
 
-// 📅 打卡日历维护系统
+// 📅 打卡系统处理
 function handleDailyCheckIn() {
-    const today = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const today = new Date().toISOString().split('T')[0];
     if (!gameState.checkInDays.includes(today)) {
         gameState.checkInDays.push(today);
         saveGame();
@@ -180,7 +173,6 @@ function initNewUniverse() {
     for (let y = 0; y < MAP_GRID; y++) {
         gameState.gameMap[y] = [];
         for (let x = 0; x < MAP_GRID; x++) {
-            // 地形生成：0 草地，1 石子路，2 鲜花小径
             let rand = Math.random();
             gameState.gameMap[y][x] = rand < 0.1 ? 1 : (rand < 0.18 ? 2 : 0);
         }
@@ -202,7 +194,7 @@ function saveGame() {
 }
 
 // ==========================================
-// 3. 随机巡逻 NPC 智能逻辑与连续按键响应
+// 3. 随机巡逻 NPC 逻辑与键盘按键
 // ==========================================
 function updateWanderingNpc() {
     if (wanderingNpc.isMoving) {
@@ -217,7 +209,7 @@ function updateWanderingNpc() {
         }
     } else {
         wanderingNpc.moveTimer++;
-        if (wanderingNpc.moveTimer > 60) { // 每隔一会儿随机向上下左右走动
+        if (wanderingNpc.moveTimer > 60) {
             wanderingNpc.moveTimer = 0;
             const dirs = [
                 { dx: 0, dy: -1, dir: 'up' },
@@ -240,7 +232,6 @@ function updateWanderingNpc() {
         }
     }
 
-    // 💡 自动碰撞检测：如果玩家跟巡逻小人撞在同一个格子，立刻开启闲聊！
     if (player.gridX === wanderingNpc.gridX && player.gridY === wanderingNpc.gridY && !activeDialog) {
         const text = wanderingNpc.dialogs[Math.floor(Math.random() * wanderingNpc.dialogs.length)];
         createDialogDOM(`🚶‍♀️ 偶遇 ${wanderingNpc.name}`, text);
@@ -248,12 +239,7 @@ function updateWanderingNpc() {
 }
 
 window.addEventListener('keydown', (e) => {
-    if (isBossMode) return;
     const key = e.key.toLowerCase();
-    
-    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
-        keysPressed[key] = true;
-    }
 
     if (e.key === 'Escape') {
         e.preventDefault();
@@ -261,15 +247,15 @@ window.addEventListener('keydown', (e) => {
         return;
     }
 
+    if (isBossMode) return;
+
+    if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key)) {
+        keysPressed[key] = true;
+    }
+
     if (isPaused || player.isSitting || activeDialog) {
         if (activeDialog && (key === 'e' || keysPressed[key])) {
             removeDialogDOM();
-        }
-        if (player.isSitting && ['w','a','s','d','arrowup','arrowdown','arrowleft','arrowright'].includes(key)) {
-            player.isSitting = false;
-            player.gridY += 1;
-            player.targetPixelY = player.gridY * TILE_SIZE;
-            player.pixelY = player.targetPixelY;
         }
         return;
     }
@@ -339,44 +325,70 @@ function removeDialogDOM() {
     activeDialog = null;
 }
 
-function spawnFloatingBubble(text) {
-    const bubble = document.createElement('div');
-    bubble.className = 'floating-bubble';
-    bubble.innerText = text;
-    bubble.style.left = `${canvas.offsetLeft + VIEW_WIDTH / 2 - 10}px`;
-    bubble.style.top = `${canvas.offsetTop + VIEW_HEIGHT / 2 - 40}px`;
-    bubble.style.color = '#764ba2';
-    document.body.appendChild(bubble);
-    setTimeout(() => bubble.remove(), 1500);
-}
-
-// 📅 打开“本月摸鱼打卡日历”窗口
-function openCalendarModal() {
-    const daysCount = gameState.checkInDays.length;
-    let daysHtml = '';
-    
-    // 生成当月 30 天的打卡网格
-    for (let i = 1; i <= 30; i++) {
-        let isChecked = i <= daysCount; // 模拟亮起状态
-        daysHtml += `<div class="calendar-day ${isChecked ? 'active' : ''}">${i}${isChecked ? '✨' : ''}</div>`;
+// 📅 将日历直接绘制/更新在侧边栏右下方
+function renderEmbeddedCalendar() {
+    let sidebar = document.getElementById('sidebar');
+    if (!sidebar) {
+        // 如果没有侧边栏结构，动态构建右侧面板
+        const gameContainer = document.getElementById('gameContainer') || document.body;
+        sidebar = document.createElement('div');
+        sidebar.id = 'sidebar';
+        sidebar.style.cssText = 'width:240px;background:#2d3436;color:#fff;padding:15px;display:flex;flex-direction:column;gap:15px;box-sizing:border-box;border-left:4px solid #000;';
+        gameContainer.appendChild(sidebar);
     }
 
-    const modal = document.createElement('div');
-    modal.className = 'pixel-dialog calendar-modal';
-    modal.id = 'calendarModal';
-    modal.innerHTML = `
-        <div class="pixel-dialog-title">📅 摸鱼打卡日历</div>
-        <div class="pixel-dialog-content">
-            <p>本月你已经连续来到摸鱼小镇 <strong>${daysCount}</strong> 天啦！</p>
-            <div class="calendar-grid">${daysHtml}</div>
+    let calendarContainer = document.getElementById('embeddedCalendar');
+    if (!calendarContainer) {
+        calendarContainer = document.createElement('div');
+        calendarContainer.id = 'embeddedCalendar';
+        calendarContainer.style.cssText = 'background:#353b48;padding:10px;border-radius:8px;border:2px solid #57606f;margin-top:auto;';
+        sidebar.appendChild(calendarContainer);
+    }
+
+    const animalEmojis = ['🐱', '🐶', '🐰', '🦊', '🐼', '🐨', '🐻', '🐥'];
+    const todayEmoji = animalEmojis[new Date().getDate() % animalEmojis.length];
+
+    const totalDays = gameState.checkInDays.length;
+    let daysGridHtml = '';
+
+    for (let i = 1; i <= 30; i++) {
+        let isChecked = i <= totalDays;
+        let isToday = i === totalDays; // 假设最新登录的这天为今天
+        
+        let displaySymbol = '';
+        if (isChecked) {
+            displaySymbol = isToday ? todayEmoji : '✨';
+        } else {
+            displaySymbol = i;
+        }
+
+        daysGridHtml += `<div style="
+            aspect-ratio:1;
+            background:${isChecked ? (isToday ? '#6c5ce7' : '#00b894') : '#2f3542'};
+            color:#fff;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size:11px;
+            font-weight:bold;
+            border-radius:4px;
+            border:${isToday ? '2px solid #fdcb6e' : 'none'};
+        ">${displaySymbol}</div>`;
+    }
+
+    calendarContainer.innerHTML = `
+        <div style="font-size:13px;font-weight:bold;margin-bottom:8px;color:#f1c40f;display:flex;justify-content:space-between;align-items:center;">
+            <span>📅 摸鱼签到日历</span>
+            <span style="font-size:11px;color:#a4b0be;">已到镇 ${totalDays} 天</span>
         </div>
-        <button class="pixel-dialog-close" onclick="document.getElementById('calendarModal').remove()">收起日历</button>
+        <div style="display:grid;grid-template-columns:repeat(6, 1fr);gap:4px;">
+            ${daysGridHtml}
+        </div>
     `;
-    document.body.appendChild(modal);
 }
 
 // ==========================================
-// 5. 5 个全新互动点与原版逻辑
+// 5. 互动逻辑与物品更新
 // ==========================================
 function checkInteractions() {
     let frontX = player.gridX;
@@ -388,21 +400,19 @@ function checkInteractions() {
 
     const objs = gameState.worldObjects;
 
-    // ✨ 新互动 1：☕ 街角咖啡车
     if (frontX === objs.coffeeCart.gridX && frontY === objs.coffeeCart.gridY) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
             player.inventory.splice(coinIdx, 1);
             addItemToInventory('coffee', '冰美式', '☕');
             saveGame();
-            createDialogDOM("☕ 街角咖啡车", "用 [🪙 硬币] 兑换了一杯【☕ 冰美式】！提神醒脑，摸鱼效率提升 100%！");
+            createDialogDOM("☕ 街角咖啡车", "用 [🪙 硬币] 兑换了一杯【☕ 冰美式】！提神醒脑，写培训 PPT 效率提升 100%！");
         } else {
             createDialogDOM("☕ 街角咖啡车", "“新鲜烘焙的咖啡！投一枚 [🪙 硬币] 就能换一杯冰美式哦。”");
         }
         return;
     }
 
-    // ✨ 新互动 2：🌳 灵感许愿树
     if (frontX === objs.wishingTree.gridX && frontY === objs.wishingTree.gridY) {
         const waterIdx = player.inventory.findIndex(i => i.type === 'water');
         if (waterIdx !== -1) {
@@ -410,32 +420,23 @@ function checkInteractions() {
             objs.wishingTree.waterCount++;
             updateInventoryUI();
             saveGame();
-            createDialogDOM("🌳 灵感许愿树", "你用【💧 露水滴】浇灌了许愿树。树叶发出了柔和的金光！灵感+999！");
+            createDialogDOM("🌳 灵感许愿树", "你用【💧 露水滴】浇灌了许愿树。培训课件的灵感爆发！");
         } else {
-            createDialogDOM("🌳 灵感许愿树", "一棵郁郁葱葱的大树。如果你收集到了路边闪烁的 [💧 露水滴]，可以来浇灌它。");
+            createDialogDOM("🌳 灵感许愿树", "一棵郁郁葱葱的大树。用 [💧 露水滴] 浇灌它能获得满满灵感！");
         }
         return;
     }
 
-    // ✨ 新互动 3：🥐 街角面包店
     if (frontX === objs.bakery.gridX && frontY === objs.bakery.gridY) {
         createDialogDOM("🥐 烘焙小屋", "门口飘着刚出炉的菠萝包香气～ 门上贴着小纸条：“今天店长心情好，所有面包免费闻！”");
         return;
     }
 
-    // ✨ 新互动 4：🚏 摸鱼站牌
     if (frontX === objs.busStop.gridX && frontY === objs.busStop.gridY) {
         createDialogDOM("🚏 摸鱼站牌", "下一班通往“下班放假号”的公交车还有 5 分钟到达，请乘客做好准备！");
         return;
     }
 
-    // ✨ 新互动 5：🐦 树梢鸟窝
-    if (frontX === objs.birdNest.gridX && frontY === objs.birdNest.gridY) {
-        createDialogDOM("🐦 树梢的小鸟", "叽叽喳喳～ 树上的小鸟正快活地筑巢呢！");
-        return;
-    }
-
-    // 原有猫咪、许愿喷泉、电话亭等逻辑保留
     if (frontX === objs.cat.gridX && frontY === objs.cat.gridY && !objs.cat.isFollowing) {
         const fishIdx = player.inventory.findIndex(i => i.type === 'fish');
         if (fishIdx !== -1) {
@@ -456,7 +457,7 @@ function checkInteractions() {
             player.inventory.splice(coinIdx, 1);
             updateInventoryUI();
             saveGame();
-            createDialogDOM("⛲ 许愿喷泉", "✨ 大吉！今天老板绝对不会转到你身后，安心摸鱼！");
+            createDialogDOM("⛲ 许愿喷泉", "✨ 大吉！今天的培训讲座学员满意度将高达 100%！");
         } else {
             createDialogDOM("⛲ 许愿喷泉", "朝里面扔一块 [🪙 硬币]，看一看今天的运势吧！");
         }
@@ -489,7 +490,7 @@ function updateInventoryUI() {
 }
 
 // ==========================================
-// 6. 更精细的像素视觉美化绘制（画风升级）
+// 6. 绘图与更新渲染循环
 // ==========================================
 function update() {
     if (isPaused || isBossMode) return;
@@ -532,20 +533,16 @@ function draw() {
     const startY = Math.floor(camY / TILE_SIZE);
     const endY = Math.min(startY + Math.ceil(VIEW_HEIGHT / TILE_SIZE) + 1, MAP_GRID);
 
-    // 1. 地图网格丰富度渲染（加入了小石子路与鲜花点缀）
     for (let y = startY; y < endY; y++) {
         for (let x = startX; x < endX; x++) {
             const screenX = x * TILE_SIZE - camX;
             const screenY = y * TILE_SIZE - camY;
 
             const tileType = gameState.gameMap[y] ? gameState.gameMap[y][x] : 0;
-            if (tileType === 1) {
-                ctx.fillStyle = '#a8a7a1'; // 灰色石子路
-            } else if (tileType === 2) {
-                ctx.fillStyle = '#81c784'; // 带有小黄花的草地
-            } else {
-                ctx.fillStyle = '#a2d149'; // 温和高质感的青草绿
-            }
+            if (tileType === 1) ctx.fillStyle = '#a8a7a1';
+            else if (tileType === 2) ctx.fillStyle = '#81c784';
+            else ctx.fillStyle = '#a2d149';
+            
             ctx.fillRect(screenX, screenY, TILE_SIZE, TILE_SIZE);
 
             if (tileType === 2) {
@@ -558,7 +555,6 @@ function draw() {
 
     const objs = gameState.worldObjects;
 
-    // 2. 绘制各种建筑与场景组件（带黑边框美化）
     drawPixelSprite(objs.vendingMachine.gridX, objs.vendingMachine.gridY, camX, camY, '#e74c3c', '🥤'); 
     drawPixelSprite(objs.clawMachine.gridX, objs.clawMachine.gridY, camX, camY, '#9b59b6', '🧸'); 
     drawPixelSprite(objs.coffeeCart.gridX, objs.coffeeCart.gridY, camX, camY, '#d35400', '☕'); 
@@ -567,14 +563,14 @@ function draw() {
     drawPixelSprite(objs.busStop.gridX, objs.busStop.gridY, camX, camY, '#2980b9', '🚏'); 
     drawPixelSprite(objs.fountain.gridX, objs.fountain.gridY, camX, camY, '#3498db', '⛲'); 
 
-    // 3. 绘制巡逻小人 (散步的小葵 - 带有黄色小帽子)
+    // 绘制 NPC
     const wnx = wanderingNpc.pixelX - camX;
     const wny = wanderingNpc.pixelY - camY;
-    ctx.fillStyle = '#f1c40f'; ctx.fillRect(wnx + 6, wny + 2, 20, 6); // 遮阳帽
-    ctx.fillStyle = '#ffeaa7'; ctx.fillRect(wnx + 8, wny + 8, 16, 8); // 脸
-    ctx.fillStyle = '#74b9ff'; ctx.fillRect(wnx + 6, wny + 16, 20, 14); // 蓝裙子
+    ctx.fillStyle = '#f1c40f'; ctx.fillRect(wnx + 6, wny + 2, 20, 6);
+    ctx.fillStyle = '#ffeaa7'; ctx.fillRect(wnx + 8, wny + 8, 16, 8);
+    ctx.fillStyle = '#74b9ff'; ctx.fillRect(wnx + 6, wny + 16, 20, 14);
 
-    // 4. 绘制地面拾取物品
+    // 绘制地面物品
     gameState.mapItems.forEach(item => {
         const ix = item.gridX * TILE_SIZE - camX;
         const iy = item.gridY * TILE_SIZE - camY;
@@ -582,22 +578,19 @@ function draw() {
         ctx.fillText(item.emoji, ix + 8, iy + 22);
     });
 
-    // 5. 绘制主角（精致粉红裙发带小女孩）
+    // 绘制主角
     const px = player.pixelX - camX;
     const py = player.pixelY - camY;
 
-    // 头发与蝴蝶结
-    ctx.fillStyle = '#e84393'; ctx.fillRect(px + 4, py + 0, 24, 6); // 亮粉色头饰
-    ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 2, py + 6, 6, 12);  // 左右双马尾
+    ctx.fillStyle = '#e84393'; ctx.fillRect(px + 4, py + 0, 24, 6);
+    ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 2, py + 6, 6, 12);
     ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 24, py + 6, 6, 12); 
 
-    // 面部与眼睛
     ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 6, 20, 10);
     ctx.fillStyle = '#2d3436'; 
     if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 9, 3, 3);
     if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 9, 3, 3);
 
-    // 小红裙
     ctx.fillStyle = '#ff7675'; ctx.fillRect(px + 4, py + 16, 24, 14);
 }
 
@@ -619,15 +612,114 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
+// ==========================================
+// 7. 老板键（Training 培训师专业看板 + 实时系统时间 + 返回按钮）
+// ==========================================
+function updateBossTime() {
+    const timeEl = document.getElementById('bossClock');
+    if (timeEl) {
+        const now = new Date();
+        timeEl.innerText = now.toLocaleTimeString();
+    }
+}
+setInterval(updateBossTime, 1000);
+
 function toggleBossMode() {
     isBossMode = !isBossMode;
     const gameContainer = document.getElementById('gameContainer');
-    const bossScreen = document.getElementById('bossKeyScreen');
+    let bossScreen = document.getElementById('bossKeyScreen');
+
     if (isBossMode) {
         gameContainer.style.display = 'none';
-        bossScreen.classList.add('active');
+        
+        if (!bossScreen) {
+            bossScreen = document.createElement('div');
+            bossScreen.id = 'bossKeyScreen';
+            document.body.appendChild(bossScreen);
+        }
+
+        bossScreen.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:#f4f6f9;z-index:99999;padding:30px;font-family:Segoe UI, sans-serif;color:#2c3e50;box-sizing:border-box;overflow-y:auto;';
+
+        bossScreen.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #e2e8f0;padding-bottom:15px;margin-bottom:20px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <span style="font-size:24px;">🎓</span>
+                    <div>
+                        <h2 style="margin:0;font-size:20px;color:#1e293b;">企业培训与学员发展管理系统 (Enterprise Training LMS)</h2>
+                        <span style="font-size:12px;color:#64748b;">培训部门 · 内部课件与学员考勤看板</span>
+                    </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:20px;">
+                    <div style="text-align:right;">
+                        <div style="font-size:12px;color:#64748b;">系统当前时间</div>
+                        <div id="bossClock" style="font-size:18px;font-weight:bold;color:#0f172a;">${new Date().toLocaleTimeString()}</div>
+                    </div>
+                    <button onclick="toggleBossMode()" style="background:#3b82f6;color:#fff;border:none;padding:10px 18px;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.1);">
+                        ↩ 返回工作面板 (Esc)
+                    </button>
+                </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:15px;margin-bottom:25px;">
+                <div style="background:#fff;padding:15px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="font-size:12px;color:#64748b;">本月已排培训课时</div>
+                    <div style="font-size:22px;font-weight:bold;color:#1e293b;margin-top:5px;">48 课时</div>
+                </div>
+                <div style="background:#fff;padding:15px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="font-size:12px;color:#64748b;">参训学员覆盖率</div>
+                    <div style="font-size:22px;font-weight:bold;color:#10b981;margin-top:5px;">94.2%</div>
+                </div>
+                <div style="background:#fff;padding:15px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="font-size:12px;color:#64748b;">课程满意度评分 (NPS)</div>
+                    <div style="font-size:22px;font-weight:bold;color:#3b82f6;margin-top:5px;">4.85 / 5.0</div>
+                </div>
+                <div style="background:#fff;padding:15px;border-radius:8px;border:1px solid #e2e8f0;">
+                    <div style="font-size:12px;color:#64748b;">待批改学员作业/考核</div>
+                    <div style="font-size:22px;font-weight:bold;color:#f59e0b;margin-top:5px;">12 份</div>
+                </div>
+            </div>
+
+            <div style="background:#fff;border-radius:8px;border:1px solid #e2e8f0;padding:20px;">
+                <h3 style="margin-top:0;font-size:16px;color:#334155;">📚 2026 年三季度培训课程排期与进度跟踪</h3>
+                <table style="width:100%;border-collapse:collapse;font-size:13px;text-align:left;">
+                    <thead>
+                        <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;color:#475569;">
+                            <th style="padding:10px;">课程名称</th>
+                            <th style="padding:10px;">目标学员</th>
+                            <th style="padding:10px;">培训讲师</th>
+                            <th style="padding:10px;">课程状态</th>
+                            <th style="padding:10px;">完播/练习率</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="border-bottom:1px solid #f1f5f9;">
+                            <td style="padding:12px;">【新员工入职】企业文化与合规培训 2026 版</td>
+                            <td>Q3 集中入职新员工</td>
+                            <td>Training 组</td>
+                            <td><span style="background:#dcfce7;color:#15803d;padding:3px 8px;border-radius:12px;font-size:11px;">进行中</span></td>
+                            <td>98%</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid #f1f5f9;">
+                            <td style="padding:12px;">【领导力提升】中层管理者沟通与跨部门协作工作坊</td>
+                            <td>各部门 Team Lead</td>
+                            <td>外部特聘专家</td>
+                            <td><span style="background:#e0f2fe;color:#0369a1;padding:3px 8px;border-radius:12px;font-size:11px;">开发筹备中</span></td>
+                            <td>45%</td>
+                        </tr>
+                        <tr style="border-bottom:1px solid #f1f5f9;">
+                            <td style="padding:12px;">【专业技能】AI 工具赋能日常办公效率实战讲座</td>
+                            <td>全公司员工 (自愿报名)</td>
+                            <td>Training 组</td>
+                            <td><span style="background:#dcfce7;color:#15803d;padding:3px 8px;border-radius:12px;font-size:11px;">进行中</span></td>
+                            <td>88%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        `;
+        bossScreen.style.display = 'block';
     } else {
-        bossScreen.classList.remove('active');
+        if (bossScreen) bossScreen.style.display = 'none';
         gameContainer.style.display = 'flex';
     }
 }
@@ -635,18 +727,6 @@ function toggleBossMode() {
 // 8. 启动与全局初始化
 loadOrCreateGame(); 
 updateInventoryUI();
+renderEmbeddedCalendar();
 loop();
 setInterval(checkContinuousInput, 16);
-
-// 在页面右上方注入“📅 摸鱼打卡”快捷按钮
-setTimeout(() => {
-    if (!document.getElementById('calendarBtn')) {
-        const btn = document.createElement('button');
-        btn.id = 'calendarBtn';
-        btn.innerHTML = '📅 摸鱼日历';
-        btn.style.cssText = 'position:fixed;top:15px;right:15px;padding:8px 15px;background:#6c5ce7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:bold;z-index:99;box-shadow:0 4px 6px rgba(0,0,0,0.1);';
-        btn.onclick = openCalendarModal;
-        document.body.appendChild(btn);
-    }
-    createDialogDOM("✨ 摸鱼小镇 2.0 大升级！", "1. 探索地图，寻找随机走动的小葵吧！<br>2. 点击右顶部的【📅 摸鱼日历】可查看你的月度连续打卡！");
-}, 300);
