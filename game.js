@@ -781,15 +781,161 @@ updateInventoryUI();
 loop();
 setInterval(checkContinuousInput, 16);
 
-// 在页面右上角注入“📅 摸鱼打卡”按钮（若不存在）
+// --------- 日历面板渲染（替换原来的 openCalendarModal） ----------
+function getEmojiForDate(dateStr) {
+    const animals = ['🐱','🐶','🐰','🐼','🦊','🐻','🐨','🐯','🐸','🦁','🦄','🦉','🐵','🐤','🐺','🐙'];
+    let sum = 0;
+    for (let i = 0; i < dateStr.length; i++) sum += dateStr.charCodeAt(i);
+    return animals[sum % animals.length];
+}
+
+function findPurplePanel() {
+    // 尝试猜测右侧紫色面板：寻找宽度较窄且靠右的元素（保守策略）
+    const candidates = Array.from(document.body.querySelectorAll('div'));
+    let best = null;
+    let bestScore = -Infinity;
+    const bodyW = document.documentElement.clientWidth;
+    candidates.forEach(el => {
+        const r = el.getBoundingClientRect();
+        if (r.width < 20 || r.height < 20) return;
+        // 更偏右且宽度中等的元素优先
+        const score = (r.right / bodyW) * 2 + Math.min(400, r.width) / 400;
+        if (score > bestScore) {
+            bestScore = score;
+            best = el;
+        }
+    });
+    // 额外检查背景色是否偏紫（可选）
+    if (best) {
+        const style = getComputedStyle(best);
+        if (!style.backgroundColor || style.backgroundColor === 'transparent') {
+            // 仍返回 best；最终会适配
+        }
+    }
+    return best;
+}
+
+function renderCalendarInPanel() {
+    // 寻找目标容器：优先已知 id/class，否则尝试猜测右侧面板，找不到则创建回退容器
+    const selectors = ['#calendarPanel', '#rightPanel', '#sidePanel', '.right-column', '.info-panel', '#gameInfo'];
+    let target = selectors.map(s => document.querySelector(s)).find(Boolean);
+    if (!target) target = document.getElementById('calendarPanelFallback') || findPurplePanel();
+    let createdFallback = false;
+    if (!target) {
+        target = document.createElement('div');
+        target.id = 'calendarPanelFallback';
+        document.body.appendChild(target);
+        createdFallback = true;
+    }
+
+    // 注入样式（只注入一次）
+    if (!document.getElementById('pixelCalendarStyles')) {
+        const style = document.createElement('style');
+        style.id = 'pixelCalendarStyles';
+        style.innerHTML = `
+            .pixel-calendar-panel { box-sizing:border-box; padding:8px; border-radius:8px; color:#fff; background:linear-gradient(180deg, rgba(0,0,0,0.22), rgba(0,0,0,0.18)); }
+            .pixel-calendar-header { display:flex; justify-content:space-between; align-items:center; padding:6px 8px; font-weight:700; color:#fff; }
+            .pixel-calendar-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap:6px; padding:8px; overflow:auto; }
+            .pixel-calendar-cell { background: rgba(255,255,255,0.04); padding:6px; border-radius:6px; font-size:13px; min-height:44px; }
+            .pixel-calendar-cell .date { font-weight:700; color:#fff; }
+            .pixel-calendar-cell .sub { font-size:11px; color:rgba(255,255,255,0.7); margin-top:4px; }
+            .pixel-calendar-weekday { text-align:center; font-size:12px; color:rgba(255,255,255,0.7); padding:4px 0; }
+            #closeCalendarSmall { background:transparent;border:none;color:#fff;font-size:18px;cursor:pointer; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // 如果我们创建了回退容器，给个合理的尺寸/位置（覆盖右侧红框）
+    if (createdFallback) {
+        target.style.position = 'fixed';
+        target.style.right = '26px';
+        target.style.top = '120px';
+        target.style.width = '260px';
+        target.style.height = '420px';
+        target.style.zIndex = 9999;
+    }
+
+    // 清空并设置类名
+    target.classList.add('pixel-calendar-panel');
+    target.innerHTML = '';
+
+    // 标题（年-月）与关闭按钮
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth(); // 0-index
+    const monthLabel = `${year} - ${String(month + 1).padStart(2,'0')} ${now.toLocaleString('default',{month:'long'})}`;
+
+    const header = document.createElement('div');
+    header.className = 'pixel-calendar-header';
+    header.innerHTML = `<div>${monthLabel}</div><div><button id="closeCalendarSmall" title="关闭日历">×</button></div>`;
+    target.appendChild(header);
+
+    // 星期头
+    const grid = document.createElement('div');
+    grid.className = 'pixel-calendar-grid';
+    const weekdays = ['日','一','二','三','四','五','六'];
+    weekdays.forEach(w => {
+        const wd = document.createElement('div');
+        wd.className = 'pixel-calendar-weekday';
+        wd.innerText = w;
+        grid.appendChild(wd);
+    });
+
+    // 空格
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    for (let i = 0; i < firstDay; i++) {
+        const empty = document.createElement('div');
+        grid.appendChild(empty);
+    }
+
+    // 填充每一天
+    for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const cell = document.createElement('div');
+        cell.className = 'pixel-calendar-cell';
+        const hasChecked = Array.isArray(gameState.checkInDays) && gameState.checkInDays.includes(dateStr);
+        let emojiHtml = '';
+        if (hasChecked) emojiHtml = `<span style="margin-left:6px;">${getEmojiForDate(dateStr)}</span>`;
+        cell.innerHTML = `<div class="date">${d}${emojiHtml}</div><div class="sub">${dateStr}</div>`;
+        grid.appendChild(cell);
+    }
+
+    target.appendChild(grid);
+
+    // 绑定关闭
+    const closeBtn = target.querySelector('#closeCalendarSmall');
+    if (closeBtn) closeBtn.addEventListener('click', () => { target.style.display = 'none'; });
+
+    // 确保展示（如果原来被隐藏）
+    target.style.display = 'block';
+}
+
+// 替换原来的 openCalendarModal，让按钮调用嵌入式面板渲染
+function openCalendarModal() {
+    renderCalendarInPanel();
+}
+// 在页面右上角注入“📅 摸鱼打卡”按钮（若不存在） —— 修复样式并绑定嵌入式日历
 setTimeout(() => {
     if (!document.getElementById('calendarBtn')) {
         const btn = document.createElement('button');
         btn.id = 'calendarBtn';
         btn.innerHTML = '📅 摸鱼日历';
-        btn.style.cssText = 'position:fixed;top:15px;right:15px;padding:8px 15px;background:#6c5ce7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:bold;z-index:9999;box-shadow:0 4px 8px rgba(0,0,0,0.2);';
-        btn.onclick = openCalendarModal;
+        btn.style.cssText = 'position:fixed;top:15px;right:15px;padding:8px 15px;background:#6c5ce7;color:#fff;border:none;border-radius:8px;cursor:pointer;font-weight:bold;z-index:9999;box-shadow:0 4px 10px rgba(0,0,0,0.2);';
+        btn.onclick = () => {
+            // 显示或切换日历面板
+            const fallback = document.getElementById('calendarPanelFallback');
+            const target = document.querySelector('#calendarPanel, #rightPanel, #sidePanel, .right-column, .info-panel') || fallback;
+            if (target && target.style && target.style.display === 'block') {
+                target.style.display = 'none';
+            } else {
+                renderCalendarInPanel();
+            }
+        };
         document.body.appendChild(btn);
     }
+
+    // 首次启动时的公告（保留）
     createDialogDOM("✨ 摸鱼小镇 2.0 大升级！", "1. 探索地图，寻找随机走动的小葵吧！<br>2. 点击右上角的【📅 摸鱼日历】可查看你的月度连续打卡！");
 }, 300);
