@@ -256,8 +256,8 @@ window.addEventListener('keydown', (e) => {
         keysPressed[key] = true;
     }
 
-    if (isPaused || player.isSitting || activeDialog) {
     if (isPaused || activeDialog) {
+    if (isPaused || player.isSitting || activeDialog) {
         if (activeDialog && (key === 'e' || keysPressed[key])) {
             removeDialogDOM();
         }
@@ -366,8 +366,8 @@ function renderEmbeddedCalendar() {
 
     for (let i = 1; i <= 30; i++) {
         let isChecked = i <= totalDays;
-        let isToday = i === totalDays; // 假设最新登录的这天为今天
         let isToday = i === totalDays; 
+        let isToday = i === totalDays; // 假设最新登录的这天为今天
 
         let displaySymbol = '';
         if (isChecked) {
@@ -439,9 +439,9 @@ function checkInteractions() {
     if (frontX === objs.coffeeCart.gridX && frontY === objs.coffeeCart.gridY) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
-            player.inventory.splice(coinIdx, 1);
             player.inventory[coinIdx].count--;
             if (player.inventory[coinIdx].count <= 0) player.inventory.splice(coinIdx, 1);
+            player.inventory.splice(coinIdx, 1);
             addItemToInventory('coffee', '冰美式', '☕');
             saveGame();
             createDialogDOM("☕ 街角咖啡车", "用 [🪙 硬币] 兑换了一杯【☕ 冰美式】！提神醒脑，写培训 PPT 效率提升 100%！");
@@ -454,9 +454,9 @@ function checkInteractions() {
     if (frontX === objs.wishingTree.gridX && frontY === objs.wishingTree.gridY) {
         const waterIdx = player.inventory.findIndex(i => i.type === 'water');
         if (waterIdx !== -1) {
-            player.inventory.splice(waterIdx, 1);
             player.inventory[waterIdx].count--;
             if (player.inventory[waterIdx].count <= 0) player.inventory.splice(waterIdx, 1);
+            player.inventory.splice(waterIdx, 1);
             objs.wishingTree.waterCount++;
             updateInventoryUI();
             saveGame();
@@ -480,9 +480,9 @@ function checkInteractions() {
     if (frontX === objs.cat.gridX && frontY === objs.cat.gridY && !objs.cat.isFollowing) {
         const fishIdx = player.inventory.findIndex(i => i.type === 'fish');
         if (fishIdx !== -1) {
-            player.inventory.splice(fishIdx, 1);
             player.inventory[fishIdx].count--;
             if (player.inventory[fishIdx].count <= 0) player.inventory.splice(fishIdx, 1);
+            player.inventory.splice(fishIdx, 1);
             objs.cat.isFollowing = true;
             updateInventoryUI();
             saveGame();
@@ -496,9 +496,9 @@ function checkInteractions() {
     if (frontX === objs.fountain.gridX && frontY === objs.fountain.gridY) {
         const coinIdx = player.inventory.findIndex(i => i.type === 'coin');
         if (coinIdx !== -1) {
-            player.inventory.splice(coinIdx, 1);
             player.inventory[coinIdx].count--;
             if (player.inventory[coinIdx].count <= 0) player.inventory.splice(coinIdx, 1);
+            player.inventory.splice(coinIdx, 1);
             updateInventoryUI();
             saveGame();
             createDialogDOM("⛲ 许愿喷泉", "✨ 大吉！今天的培训讲座学员满意度将高达 100%！");
@@ -708,16 +708,16 @@ function draw() {
     ctx.font = '16px sans-serif';
     ctx.fillText('🐱', cx + 8, cy + 22);
 
-    // 绘制 NPC
     // 绘制 NPC (散步的小葵)
+    // 绘制 NPC
     const wnx = wanderingNpc.pixelX - camX;
     const wny = wanderingNpc.pixelY - camY;
     ctx.fillStyle = '#f1c40f'; ctx.fillRect(wnx + 6, wny + 2, 20, 6);
     ctx.fillStyle = '#ffeaa7'; ctx.fillRect(wnx + 8, wny + 8, 16, 8);
     ctx.fillStyle = '#74b9ff'; ctx.fillRect(wnx + 6, wny + 16, 20, 14);
 
-    // 绘制地面物品
     // 绘制地面掉落物品
+    // 绘制地面物品
     gameState.mapItems.forEach(item => {
         const ix = item.gridX * TILE_SIZE - camX;
         const iy = item.gridY * TILE_SIZE - camY;
@@ -729,9 +729,6 @@ function draw() {
     const px = player.pixelX - camX;
     const py = player.pixelY - camY;
 
-    ctx.fillStyle = '#e84393'; ctx.fillRect(px + 4, py + 0, 24, 6);
-    ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 2, py + 6, 6, 12);
-    ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 24, py + 6, 6, 12); 
     if (player.isSitting) {
         // 坐下姿势
         ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 10, 20, 10);
@@ -742,19 +739,22 @@ function draw() {
         ctx.fillStyle = '#e84393'; ctx.fillRect(px + 4, py + 0, 24, 6);
         ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 2, py + 6, 6, 12);
         ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 24, py + 6, 6, 12); 
+    ctx.fillStyle = '#e84393'; ctx.fillRect(px + 4, py + 0, 24, 6);
+    ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 2, py + 6, 6, 12);
+    ctx.fillStyle = '#5c3d2e'; ctx.fillRect(px + 24, py + 6, 6, 12); 
 
-    ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 6, 20, 10);
-    ctx.fillStyle = '#2d3436'; 
-    if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 9, 3, 3);
-    if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 9, 3, 3);
         ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 6, 20, 10);
         ctx.fillStyle = '#2d3436'; 
         if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 9, 3, 3);
         if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 9, 3, 3);
+    ctx.fillStyle = '#ffeaa7'; ctx.fillRect(px + 6, py + 6, 20, 10);
+    ctx.fillStyle = '#2d3436'; 
+    if (player.direction === 'down' || player.direction === 'left') ctx.fillRect(px + 9, py + 9, 3, 3);
+    if (player.direction === 'down' || player.direction === 'right') ctx.fillRect(px + 18, py + 9, 3, 3);
 
-    ctx.fillStyle = '#ff7675'; ctx.fillRect(px + 4, py + 16, 24, 14);
         ctx.fillStyle = '#ff7675'; ctx.fillRect(px + 4, py + 16, 24, 14);
     }
+    ctx.fillStyle = '#ff7675'; ctx.fillRect(px + 4, py + 16, 24, 14);
 }
 
 function drawPixelSprite(gx, gy, camX, camY, color, emoji) {
@@ -793,8 +793,8 @@ function toggleBossMode() {
     let bossScreen = document.getElementById('bossKeyScreen');
 
     if (isBossMode) {
-        gameContainer.style.display = 'none';
         if (gameContainer) gameContainer.style.display = 'none';
+        gameContainer.style.display = 'none';
 
         if (!bossScreen) {
             bossScreen = document.createElement('div');
@@ -884,8 +884,8 @@ function toggleBossMode() {
         bossScreen.style.display = 'block';
     } else {
         if (bossScreen) bossScreen.style.display = 'none';
-        gameContainer.style.display = 'flex';
         if (gameContainer) gameContainer.style.display = 'flex';
+        gameContainer.style.display = 'flex';
     }
 }
 
